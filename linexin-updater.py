@@ -134,7 +134,7 @@ class MainWindow(Adw.ApplicationWindow):
         return_code = -1
         try:
             process = subprocess.Popen(
-                "run0 pacman -Syu --noconfirm && flatpak update",
+                "run0 pacman -Syu --noconfirm && flatpak update --assumeyes",
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
