@@ -6,24 +6,47 @@ import threading
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Gtk, Adw, GLib, Gdk
 
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_default_size(500, 250)
         self.set_title("Linexin Updater")
-
-        style_manager = Adw.StyleManager.get_default()
+        
+         # Apply custom CSS for transparent header bar
+        css_provider = Gtk.CssProvider()
+        css = """
+        headerbar {
+            background-color: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .titlebar {
+            background-color: transparent;
+        }
+        .linexin-app-buttons {
+            font-size: 16px;
+            padding: 10px 20px; 
+            min-width: 150px;
+            min-height: 40px; 
+        }
+        """
+        css_provider.load_from_data(css.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         self.output_buffer = []
         self.is_running = False
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        header_bar = Adw.HeaderBar()
-        header_bar.set_show_end_title_buttons(True)
-        main_box.append(header_bar)
+        self.header_bar = Adw.HeaderBar()
+        self.header_bar.set_show_end_title_buttons(True)
+        main_box.append(self.header_bar)
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         content_box.set_margin_top(12)
@@ -37,8 +60,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.warning_box.set_valign(Gtk.Align.CENTER)
         self.warning_box.set_visible(False)
         content_box.append(self.warning_box)
-
+        
         self.warning_label_line1 = Gtk.Label(label="The update is in progress...")
+        self.warning_label_line1.set_margin_top(50)
         self.warning_label_line1.set_halign(Gtk.Align.CENTER)
         self.warning_label_line1.set_valign(Gtk.Align.CENTER)
         self.warning_box.append(self.warning_label_line1)
@@ -47,11 +71,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.warning_label_line2.set_halign(Gtk.Align.CENTER)
         self.warning_label_line2.set_valign(Gtk.Align.CENTER)
         self.warning_label_line2.set_markup(
-            '<span foreground="red" weight="bold">Do NOT close the app!</span>'
+            '<span foreground="red" weight="bold" size="large">Do NOT close the app!</span>'
         )
         self.warning_box.append(self.warning_label_line2)
 
-        # Status label (shown after update finishes)
         self.status_label = Gtk.Label()
         self.status_label.set_halign(Gtk.Align.CENTER)
         self.status_label.set_valign(Gtk.Align.CENTER)
@@ -84,6 +107,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.update_button = Gtk.Button(label="Run System Update")
         self.update_button.add_css_class("suggested-action")
+        self.update_button.add_css_class("linexin-app-buttons")
         self.update_button.connect("clicked", self.on_update_button_clicked)
         button_box.append(self.update_button)
 
@@ -98,6 +122,8 @@ class MainWindow(Adw.ApplicationWindow):
     def on_update_button_clicked(self, button):
         self.update_button.set_sensitive(False)
         self.show_progress_button.set_sensitive(True)
+        self.header_bar.set_sensitive(False)
+        self.header_bar.set_visible(False)
 
         self.output_buffer.clear()
         self.text_view.get_buffer().set_text("")
@@ -105,8 +131,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.text_view.set_visible(False)
         self.scrolled_window.set_visible(False)
         self.show_progress_button.set_label("Show progress")
-
-        self.status_label.set_visible(False)  # Hide old status
+        self.show_progress_button.add_css_class("linexin-app-buttons")
+        self.status_label.set_visible(False)
         self.is_running = True
         self.update_warning_visibility()
 
@@ -168,13 +194,19 @@ class MainWindow(Adw.ApplicationWindow):
 
             def finish_update_ui():
                 self.update_button.set_sensitive(True)
+                self.header_bar.set_sensitive(True)
+                self.header_bar.set_visible(True)
                 self.update_warning_visibility()
 
                 self.status_label.set_visible(True)
+                self.text_view.set_visible(False)
+                self.scrolled_window.set_visible(False)
                 if return_code == 0:
-                    self.status_label.set_markup('<span foreground="green">✅ Update completed successfully.</span>')
+                    self.status_label.set_margin_top(40)
+                    self.status_label.set_markup('<span foreground="green" size="large">✅ Update completed successfully.</span>')
                 else:
-                    self.status_label.set_markup(f'<span foreground="red">❌ Update failed (code {return_code}).</span>')
+                    self.status_label.set_margin_top(40)
+                    self.status_label.set_markup(f'<span foreground="red" size="large">❌ Update failed (code {return_code}).</span>')
 
             GLib.idle_add(finish_update_ui)
 
