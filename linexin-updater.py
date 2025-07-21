@@ -3,18 +3,51 @@
 import gi
 import subprocess
 import threading
+import gettext
+import locale
+import os
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib, Gdk
 
+# Set up internationalization (i18n)
+# Define the directory where translation files will be stored
+LOCALEDIR = os.path.join(os.path.dirname(__file__), "locale")
+DOMAIN = "linexin-updater"
+
+# Detect system language
+def setup_gettext():
+    # Get the system locale (e.g., 'pl_PL.UTF-8' for Polish)
+    try:
+        locale.setlocale(locale.LC_ALL, '')
+        lang, encoding = locale.getlocale()
+        if lang is None:
+            lang = 'en'  # Fallback to English if no locale is detected
+    except locale.Error:
+        lang = 'en'  # Fallback to English if locale setting fails
+
+    # Bind the text domain to the locale directory
+    gettext.bindtextdomain(DOMAIN, LOCALEDIR)
+    gettext.textdomain(DOMAIN)
+
+    # Install the translation for the detected language
+    translation = gettext.translation(DOMAIN, LOCALEDIR, languages=[lang], fallback=True)
+    translation.install()
+
+# Call setup_gettext to initialize translations
+setup_gettext()
+
+# Use _() for translatable strings
+_ = gettext.gettext
+
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_default_size(500, 250)
-        self.set_title("Linexin Updater")
+        self.set_title(_("Linexin Updater"))  # Translatable title
         
-         # Apply custom CSS for transparent header bar
+        # Apply custom CSS for transparent header bar
         css_provider = Gtk.CssProvider()
         css = """
         headerbar {
@@ -61,7 +94,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.warning_box.set_visible(False)
         content_box.append(self.warning_box)
         
-        self.warning_label_line1 = Gtk.Label(label="The update is in progress...")
+        self.warning_label_line1 = Gtk.Label(label=_("The update is in progress..."))  # Translatable
         self.warning_label_line1.set_margin_top(50)
         self.warning_label_line1.set_halign(Gtk.Align.CENTER)
         self.warning_label_line1.set_valign(Gtk.Align.CENTER)
@@ -71,7 +104,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.warning_label_line2.set_halign(Gtk.Align.CENTER)
         self.warning_label_line2.set_valign(Gtk.Align.CENTER)
         self.warning_label_line2.set_markup(
-            '<span foreground="red" weight="bold" size="large">Do NOT close the app!</span>'
+            '<span foreground="red" weight="bold" size="large">{}</span>'.format(_("Do NOT close the app!"))  # Translatable
         )
         self.warning_box.append(self.warning_label_line2)
 
@@ -105,13 +138,13 @@ class MainWindow(Adw.ApplicationWindow):
         button_box.set_hexpand(True)
         content_box.append(button_box)
 
-        self.update_button = Gtk.Button(label="Run System Update")
+        self.update_button = Gtk.Button(label=_("Run System Update"))  # Translatable
         self.update_button.add_css_class("suggested-action")
         self.update_button.add_css_class("linexin-app-buttons")
         self.update_button.connect("clicked", self.on_update_button_clicked)
         button_box.append(self.update_button)
 
-        self.show_progress_button = Gtk.Button(label="Show progress")
+        self.show_progress_button = Gtk.Button(label=_("Show progress"))  # Translatable
         self.show_progress_button.set_sensitive(False)
         self.show_progress_button.connect("clicked", self.on_toggle_progress_clicked)
         button_box.append(self.show_progress_button)
@@ -130,7 +163,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.text_view.set_visible(False)
         self.scrolled_window.set_visible(False)
-        self.show_progress_button.set_label("Show progress")
+        self.show_progress_button.set_label(_("Show progress"))  # Translatable
         self.show_progress_button.add_css_class("linexin-app-buttons")
         self.status_label.set_visible(False)
         self.is_running = True
@@ -142,11 +175,11 @@ class MainWindow(Adw.ApplicationWindow):
         if self.text_view.get_visible():
             self.text_view.set_visible(False)
             self.scrolled_window.set_visible(False)
-            self.show_progress_button.set_label("Show progress")
+            self.show_progress_button.set_label(_("Show progress"))  # Translatable
         else:
             self.text_view.set_visible(True)
             self.scrolled_window.set_visible(True)
-            self.show_progress_button.set_label("Hide progress")
+            self.show_progress_button.set_label(_("Hide progress"))  # Translatable
 
             buffer = self.text_view.get_buffer()
             buffer.set_text("\n".join(self.output_buffer))
@@ -178,15 +211,15 @@ class MainWindow(Adw.ApplicationWindow):
 
             return_code = process.poll()
             if return_code == 0:
-                self.output_buffer.append("Update completed successfully.")
-                GLib.idle_add(self.append_output_if_visible, "Update completed successfully.")
+                self.output_buffer.append(_("Update completed successfully."))  # Translatable
+                GLib.idle_add(self.append_output_if_visible, _("Update completed successfully."))  # Translatable
             else:
-                error_line = f"Update failed with return code {return_code}."
+                error_line = _("Update failed with return code {}.").format(return_code)  # Translatable
                 self.output_buffer.append(error_line)
                 GLib.idle_add(self.append_output_if_visible, error_line)
 
         except Exception as e:
-            error_line = f"Error: {str(e)}"
+            error_line = _("Error: {}").format(str(e))  # Translatable
             self.output_buffer.append(error_line)
             GLib.idle_add(self.append_output_if_visible, error_line)
         finally:
@@ -203,10 +236,10 @@ class MainWindow(Adw.ApplicationWindow):
                 self.scrolled_window.set_visible(False)
                 if return_code == 0:
                     self.status_label.set_margin_top(40)
-                    self.status_label.set_markup('<span foreground="green" size="large">✅ Update completed successfully.</span>')
+                    self.status_label.set_markup('<span foreground="green" size="large">✅ {}</span>'.format(_("Update completed successfully.")))  # Translatable
                 else:
                     self.status_label.set_margin_top(40)
-                    self.status_label.set_markup(f'<span foreground="red" size="large">❌ Update failed (code {return_code}).</span>')
+                    self.status_label.set_markup('<span foreground="red" size="large">❌ {}</span>'.format(_("Update failed (code {}).").format(return_code)))  # Translatable
 
             GLib.idle_add(finish_update_ui)
 
@@ -236,4 +269,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

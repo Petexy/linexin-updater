@@ -1,0 +1,58 @@
+# Spanish translations for 1.2.0.r package.
+# Copyright (C) 2025 THE 1.2.0.r'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the 1.2.0.r package.
+# FIRST AUTHOR <piotr.petexiness@gmail.com>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: 1.2.0.r\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-07-21 23:16+0200\n"
+"PO-Revision-Date: 2025-07-21 23:41+0200\n"
+"Last-Translator:  <piotr.petexiness@gmail.com>\n"
+"Language-Team: Spanish <es@tp.org.es>\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: linexin-updater.py:48
+msgid "Linexin Updater"
+msgstr "Actualizador de Linexin"
+
+#: linexin-updater.py:97
+msgid "The update is in progress..."
+msgstr "La actualización está en curso..."
+
+#: linexin-updater.py:107
+msgid "Do NOT close the app!"
+msgstr "¡NO cierres la aplicación!"
+
+#: linexin-updater.py:141
+msgid "Run System Update"
+msgstr "Mostrar progreso"
+
+#: linexin-updater.py:147 linexin-updater.py:166 linexin-updater.py:178
+msgid "Show progress"
+msgstr "Ocultar progreso"
+
+#: linexin-updater.py:182
+msgid "Hide progress"
+msgstr "Ukryj postęp"
+
+#: linexin-updater.py:214 linexin-updater.py:215 linexin-updater.py:239
+msgid "Update completed successfully."
+msgstr "Actualización completada con éxito."
+
+#: linexin-updater.py:217
+msgid "Update failed with return code {}."
+msgstr "La actualización falló con el código de retorno {}."
+
+#: linexin-updater.py:222
+msgid "Error: {}"
+msgstr "Error: {}"
+
+#: linexin-updater.py:242
+msgid "Update failed (code {})."
+msgstr "La actualización falló (código {})."
