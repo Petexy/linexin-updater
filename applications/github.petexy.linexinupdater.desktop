@@ -3,7 +3,7 @@ Name=Linexin Updater
 
 Exec=linexin-updater
 
-Icon=/usr/share/linexin-icons/github.petexy.linexinupdater.svg
+Icon=/usr/share/icons/github.petexy.linexinupdater.svg
 
 Terminal=false
 Type=Application
