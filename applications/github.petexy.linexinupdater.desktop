@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Linexin Updater
+
+Exec=linexin-updater
+
+Icon=/usr/share/linexin-icons/github.petexy.linexinupdater.svg
+
+Terminal=false
+Type=Application
+Categories=GTK; Installer; Affinity; Photo; Design; Publish; Designer; Publisher;
+StartupNotify=false

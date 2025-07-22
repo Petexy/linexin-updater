@@ -13,7 +13,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk
 
 # Set up internationalization (i18n)
 # Define the directory where translation files will be stored
-LOCALEDIR = os.path.join(os.path.dirname(__file__), "locale")
+LOCALEDIR = "/usr/share/locale"
 DOMAIN = "linexin-updater"
 
 # Detect system language
