@@ -45,7 +45,7 @@ class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         self.set_default_size(500, 250)
-        self.set_title(_("Linexin Updater"))  # Translatable title
+        self.set_title("")  
         
         # Apply custom CSS for transparent header bar
         css_provider = Gtk.CssProvider()
@@ -151,6 +151,26 @@ class MainWindow(Adw.ApplicationWindow):
 
         main_box.append(content_box)
         self.set_content(main_box)
+
+        self.connect("close-request", self.on_close_request)
+
+    def on_close_request(self, *args):
+        # Handle the close-request signal to prevent closing during installation
+        if self.is_running:
+            # Show a notification or dialog to inform the user
+            dialog = Adw.MessageDialog(
+                heading=_("Installation in Progress"),
+                body=_("Please wait until the update is complete before closing the application!"),
+                transient_for=self,
+                modal=True
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.set_default_response("ok")
+            dialog.set_close_response("ok")
+            dialog.present()
+            return True  # Prevents the window from closing
+        return False  # Allows the window to close
+
 
     def on_update_button_clicked(self, button):
         self.update_button.set_sensitive(False)

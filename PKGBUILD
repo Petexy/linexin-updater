@@ -1,7 +1,7 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=linexin-updater
-pkgver=1.3.1.r
+pkgver=1.4.0.r
 pkgrel=1
 _currentdate=$(date +"%Y-%m-%d%H-%M-%S")
 pkgdesc='Automatic updater for Linexin. Automatically updates system packages and Flatpaks at once'
