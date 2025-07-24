@@ -7,5 +7,5 @@ Icon=/usr/share/icons/github.petexy.linexinupdater.svg
 
 Terminal=false
 Type=Application
-Categories=GTK; Installer; Affinity; Photo; Design; Publish; Designer; Publisher;
+Categories=GTK; Update; Install; software; arch; pacman; syu;
 StartupNotify=false

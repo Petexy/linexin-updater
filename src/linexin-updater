@@ -6,48 +6,47 @@ import threading
 import gettext
 import locale
 import os
+import shutil
+import shlex
+import distro
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib, Gdk
 
-# Set up internationalization (i18n)
-# Define the directory where translation files will be stored
-LOCALEDIR = "/usr/share/locale"
-DOMAIN = "linexin-updater"
+# --- Localization Setup ---
+APP_NAME = "linexin-updater"
+LOCALE_DIR = os.path.abspath("/usr/share/locale")
 
-# Detect system language
-def setup_gettext():
-    # Get the system locale (e.g., 'pl_PL.UTF-8' for Polish)
-    try:
-        locale.setlocale(locale.LC_ALL, '')
-        lang, encoding = locale.getlocale()
-        if lang is None:
-            lang = 'en'  # Fallback to English if no locale is detected
-    except locale.Error:
-        lang = 'en'  # Fallback to English if locale setting fails
-
-    # Bind the text domain to the locale directory
-    gettext.bindtextdomain(DOMAIN, LOCALEDIR)
-    gettext.textdomain(DOMAIN)
-
-    # Install the translation for the detected language
-    translation = gettext.translation(DOMAIN, LOCALEDIR, languages=[lang], fallback=True)
-    translation.install()
-
-# Call setup_gettext to initialize translations
-setup_gettext()
-
-# Use _() for translatable strings
+# Set up the locale environment
+locale.setlocale(locale.LC_ALL, '')
+locale.bindtextdomain(APP_NAME, LOCALE_DIR)
+gettext.bindtextdomain(APP_NAME, LOCALE_DIR)
+gettext.textdomain(APP_NAME)
 _ = gettext.gettext
+# --------------------------
+
 
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
-        self.set_default_size(500, 250)
-        self.set_title("")  
-        
-        # Apply custom CSS for transparent header bar
+        # App info and reset of potentially lost data
+        self.set_title("")
+        self.set_default_size(600, 300) # Increased height for image
+        self.progress_visible = False
+        self.progress_data = ""
+        self.install_started = False
+        self.error_message = None
+
+        # Main vertical box to hold header bar and content
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_content(main_box)
+
+        # Add Adwaita header bar
+        self.header_bar = Adw.HeaderBar()
+        self.header_bar.set_title_widget(Adw.WindowTitle.new(self.get_title(), ""))
+        main_box.append(self.header_bar)
+        main_box.append(self.header_bar)
         css_provider = Gtk.CssProvider()
         css = """
         headerbar {
@@ -58,12 +57,6 @@ class MainWindow(Adw.ApplicationWindow):
         .titlebar {
             background-color: transparent;
         }
-        .linexin-app-buttons {
-            font-size: 16px;
-            padding: 10px 20px; 
-            min-width: 150px;
-            min-height: 40px; 
-        }
         """
         css_provider.load_from_data(css.encode())
         Gtk.StyleContext.add_provider_for_display(
@@ -72,220 +65,285 @@ class MainWindow(Adw.ApplicationWindow):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-        self.output_buffer = []
-        self.is_running = False
 
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        self.header_bar = Adw.HeaderBar()
-        self.header_bar.set_show_end_title_buttons(True)
-        main_box.append(self.header_bar)
+        # Main horizontal box for content
+        hbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20,
+                       margin_top=20, margin_bottom=20, margin_start=20, margin_end=20)
+        main_box.append(hbox)
 
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        content_box.set_margin_top(12)
-        content_box.set_margin_bottom(12)
-        content_box.set_margin_start(12)
-        content_box.set_margin_end(12)
-        content_box.set_vexpand(True)
 
-        self.warning_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.warning_box.set_halign(Gtk.Align.CENTER)
-        self.warning_box.set_valign(Gtk.Align.CENTER)
-        self.warning_box.set_visible(False)
-        content_box.append(self.warning_box)
+        ### CHANGED ### - Replaced the right-side Gtk.Box with a Gtk.Stack
+        # This allows switching between the image, info label, and progress view.
+        self.content_stack = Gtk.Stack()
+        self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_UP_DOWN)
+        self.content_stack.set_hexpand(True)
+        self.content_stack.set_vexpand(True)
+        hbox.append(self.content_stack)
+
+        # --- Stack Page 1: Welcome Image ---
+        # NOTE: Replace "path/to/your/image.png" with the actual path to your image file.
+        welcome_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
+        welcome_box.set_valign(Gtk.Align.CENTER) # Center the whole box vertically
+        welcome_box.set_halign(Gtk.Align.CENTER) # Center the whole box horizontally
+
+        # --- Image ---
+        image_path = "/usr/share/icons/sync.svg"
+        welcome_image = Gtk.Image()
+        if os.path.exists(image_path):
+            welcome_image.set_from_file(image_path)
+        else:
+            welcome_image.set_from_icon_name("view-refresh")
         
-        self.warning_label_line1 = Gtk.Label(label=_("The update is in progress..."))  # Translatable
-        self.warning_label_line1.set_margin_top(50)
-        self.warning_label_line1.set_halign(Gtk.Align.CENTER)
-        self.warning_label_line1.set_valign(Gtk.Align.CENTER)
-        self.warning_box.append(self.warning_label_line1)
+        welcome_image.set_pixel_size(125) # Set your desired image size
+        
+        # Add the image to the container box
+        welcome_box.append(welcome_image)
 
-        self.warning_label_line2 = Gtk.Label()
-        self.warning_label_line2.set_halign(Gtk.Align.CENTER)
-        self.warning_label_line2.set_valign(Gtk.Align.CENTER)
-        self.warning_label_line2.set_markup(
-            '<span foreground="red" weight="bold" size="large">{}</span>'.format(_("Do NOT close the app!"))  # Translatable
-        )
-        self.warning_box.append(self.warning_label_line2)
+        # --- Text Label ---
+        welcome_label = Gtk.Label()
+        # You can use Pango markup for styling
+        #welcome_label.set_markup('<span size="x-large" weight="bold">Find and install updates</span>')
 
-        self.status_label = Gtk.Label()
-        self.status_label.set_halign(Gtk.Align.CENTER)
-        self.status_label.set_valign(Gtk.Align.CENTER)
-        self.status_label.set_visible(False)
-        content_box.append(self.status_label)
+        # Add the label to the container box
+        #welcome_box.append(welcome_label)
 
-        self.text_view = Gtk.TextView()
-        self.text_view.set_editable(False)
-        self.text_view.set_monospace(True)
-        self.text_view.set_visible(False)
+        # Add the container box (with both widgets) to the stack
+        self.content_stack.add_named(welcome_box, "welcome_image")
+
+
+        # --- Stack Page 2: Info Label ---
+        infobox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        infobox.set_valign(Gtk.Align.CENTER) # Center the whole box vertically
+        infobox.set_halign(Gtk.Align.CENTER) # Center the whole box horizontally
+
+        # --- Image ---
+        fail_image_path = "/usr/share/icons/fault.svg"
+        
+        if os.path.exists(fail_image_path):
+            self.fail_image = Gtk.Image()
+            self.fail_image.set_from_file(image_path)
+            self.fail_image.set_pixel_size(100) # Set your desired image size
+        else:
+            self.fail_image = Gtk.Label()
+            self.fail_image.set_markup('<span size="50pt">❌</span>')
+            #self.fail_image.set_from_icon_name("application-x-executable")
+        
+        
+
+        success_image_path = "/usr/share/icons/confirm.svg"
+        
+        if os.path.exists(success_image_path):
+            self.success_image = Gtk.Image()
+            self.success_image.set_from_file(image_path)
+            self.success_image.set_pixel_size(100) # Set your desired image size
+        else:
+            self.success_image = Gtk.Label()
+            self.success_image.set_markup('<span size="50pt">✅</span>')
+            #self.success_image.set_from_icon_name("application-x-executable")
+        
+        
+        
+
+
+        # Add the image to the container box
+        infobox.append(self.fail_image)
+        infobox.append(self.success_image)
+        self.fail_image.set_visible(False)
+        self.success_image.set_visible(False)
+
+        # --- Text Label ---
+        self.info_label = Gtk.Label()
+        self.info_label.set_vexpand(True)
+        self.info_label.set_hexpand(True)
+        self.info_label.set_wrap(True)
+        self.info_label.set_justify(Gtk.Justification.CENTER)
+        infobox.append(self.info_label)
+        self.content_stack.add_named(infobox, "info_message")
+
+        # Add the label to the container box
+        
+
+
+        # --- Stack Page 3: Progress View ---
+        self.output_buffer = Gtk.TextBuffer()
+        self.output_textview = Gtk.TextView.new_with_buffer(self.output_buffer)
+        self.output_textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.output_textview.set_editable(False)
+        self.output_textview.set_cursor_visible(False)
+        self.output_textview.set_monospace(True)
+        self.output_textview.set_left_margin(10)
+        self.output_textview.set_right_margin(10)
+        self.output_textview.set_top_margin(5)
+        self.output_textview.set_bottom_margin(5)
 
         scrolled_window = Gtk.ScrolledWindow()
         scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled_window.set_child(self.text_view)
-        scrolled_window.set_vexpand(True)
-        scrolled_window.set_hexpand(True)
-        scrolled_window.set_visible(False)
+        scrolled_window.set_child(self.output_textview)
+        
+        output_frame = Gtk.Frame()
+        output_frame.set_child(scrolled_window)
+        self.content_stack.add_named(output_frame, "progress_view")
 
-        self.scrolled_window = scrolled_window
-        content_box.append(self.scrolled_window)
+        # Set the initial visible page of the stack
+        self.content_stack.set_visible_child_name("welcome_image")
 
-        spacer = Gtk.Box()
-        spacer.set_vexpand(True)
-        content_box.append(spacer)
+        # Left vertical button group
+        button_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        hbox.append(button_box)
 
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        button_box.set_halign(Gtk.Align.CENTER)
-        button_box.set_hexpand(True)
-        content_box.append(button_box)
+        # A single button to start the installation process
+        self.btn_install = Gtk.Button(label=_("Install updates"))
+        self.btn_toggle_progress = Gtk.Button(label=_("Show progress"), sensitive=False)
 
-        self.update_button = Gtk.Button(label=_("Run System Update"))  # Translatable
-        self.update_button.add_css_class("suggested-action")
-        self.update_button.add_css_class("linexin-app-buttons")
-        self.update_button.connect("clicked", self.on_update_button_clicked)
-        button_box.append(self.update_button)
+        self.btn_install.set_margin_start(150)
+        self.btn_install.set_margin_end(150)
+        self.btn_install.set_vexpand(True)
+        self.btn_install.add_css_class("suggested-action")
 
-        self.show_progress_button = Gtk.Button(label=_("Show progress"))  # Translatable
-        self.show_progress_button.set_sensitive(False)
-        self.show_progress_button.connect("clicked", self.on_toggle_progress_clicked)
-        button_box.append(self.show_progress_button)
+        self.btn_toggle_progress.set_margin_start(150)
+        self.btn_toggle_progress.set_margin_end(150)
+        self.btn_toggle_progress.set_vexpand(True)
+        self.btn_toggle_progress.set_visible(False)
 
-        main_box.append(content_box)
-        self.set_content(main_box)
+        self.btn_install.connect("clicked", self.on_install_clicked)
+        self.btn_toggle_progress.connect("clicked", self.on_toggle_progress_clicked)
 
+        button_box.append(self.btn_install)
+        button_box.append(self.btn_toggle_progress)
+
+
+
+        # Connect to the close-request signal
         self.connect("close-request", self.on_close_request)
 
     def on_close_request(self, *args):
-        # Handle the close-request signal to prevent closing during installation
-        if self.is_running:
-            # Show a notification or dialog to inform the user
+        if self.install_started:
             dialog = Adw.MessageDialog(
-                heading=_("Installation in Progress"),
-                body=_("Please wait until the update is complete before closing the application!"),
+                heading=_("Update in progress!"),
+                body=_("Please wait until the update is complete before closing the application."),
                 transient_for=self,
                 modal=True
             )
+            dialog.set_default_size(500, 200)
             dialog.add_response("ok", _("OK"))
             dialog.set_default_response("ok")
             dialog.set_close_response("ok")
             dialog.present()
-            return True  # Prevents the window from closing
-        return False  # Allows the window to close
+            return True
+        return False
 
+    def on_install_clicked(self, button):
+        product_name = distro.name()
 
-    def on_update_button_clicked(self, button):
-        self.update_button.set_sensitive(False)
-        self.show_progress_button.set_sensitive(True)
+        # Properly quote the argument to cowsay to handle the apostrophe
+        command = f"echo Updating {product_name}... && run0 pacman -Syu --noconfirm && flatpak  update --assumeyes"
+        self.begin_install(command, product_name)
+
+    def begin_install(self, command, product_name):
+        self.install_started = True
         self.header_bar.set_sensitive(False)
-        self.header_bar.set_visible(False)
+        self.header_bar.set_opacity(0) 
+        self.btn_install.set_sensitive(False)
+        self.btn_install.set_visible(False)
+        self.btn_toggle_progress.set_sensitive(True)
+        self.btn_toggle_progress.set_visible(True)
+        self.current_product = product_name
+        self.error_message = None  
 
-        self.output_buffer.clear()
-        self.text_view.get_buffer().set_text("")
+        self.info_label.set_markup(f'<span size="large" weight="bold">{_("Updating {}...").format(self.current_product)}</span>')
+        self.content_stack.set_visible_child_name("info_message")
 
-        self.text_view.set_visible(False)
-        self.scrolled_window.set_visible(False)
-        self.show_progress_button.set_label(_("Show progress"))  # Translatable
-        self.show_progress_button.add_css_class("linexin-app-buttons")
-        self.status_label.set_visible(False)
-        self.is_running = True
-        self.update_warning_visibility()
+        self.progress_data = ""
+        self.progress_visible = False
+        self.btn_toggle_progress.set_label(_("Show progress"))
+        self.output_buffer.set_text("")  
 
-        threading.Thread(target=self.run_update_command, daemon=True).start()
+        self.run_shell_command(command)
 
     def on_toggle_progress_clicked(self, button):
-        if self.text_view.get_visible():
-            self.text_view.set_visible(False)
-            self.scrolled_window.set_visible(False)
-            self.show_progress_button.set_label(_("Show progress"))  # Translatable
+        self.progress_visible = not self.progress_visible
+
+        if self.progress_visible:
+            self.btn_toggle_progress.set_label(_("Hide progress"))
+            self.output_buffer.set_text(self.progress_data or _("[console output]"))
+            self.content_stack.set_visible_child_name("progress_view")
+            # Add a small delay for the initial scroll to prevent jumping
+            GLib.timeout_add(50, self.scroll_to_end)
         else:
-            self.text_view.set_visible(True)
-            self.scrolled_window.set_visible(True)
-            self.show_progress_button.set_label(_("Hide progress"))  # Translatable
+            self.btn_toggle_progress.set_label(_("Show progress"))
+            self.content_stack.set_visible_child_name("info_message")
 
-            buffer = self.text_view.get_buffer()
-            buffer.set_text("\n".join(self.output_buffer))
+    def run_shell_command(self, command):
+        def stream_output():
+            try:
+                process = subprocess.Popen(command, 
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace'
+                )
 
-            end_iter = buffer.get_end_iter()
-            self.text_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 0.0)
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        self.progress_data += line
+                        GLib.idle_add(self.update_output_buffer, self.progress_data)
 
-        self.update_warning_visibility()
+                process.stdout.close()
+                return_code = process.wait()
+                if return_code != 0:
+                    self.error_message = _("Process exited with code {}").format(return_code)
+            except Exception as e:
+                self.error_message = str(e)
+                self.progress_data += _("\nError: {}").format(e)
+                GLib.idle_add(self.update_output_buffer, self.progress_data)
 
-    def run_update_command(self):
-        return_code = -1
-        try:
-            process = subprocess.Popen(
-                "run0 pacman -Syu --noconfirm && flatpak update --assumeyes",
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
-            )
+            GLib.idle_add(self.finish_installation)
 
-            while True:
-                output = process.stdout.readline()
-                if output == "" and process.poll() is not None:
-                    break
-                if output:
-                    line = output.strip()
-                    self.output_buffer.append(line)
-                    GLib.idle_add(self.append_output_if_visible, line)
+        threading.Thread(target=stream_output, daemon=True).start()
 
-            return_code = process.poll()
-            if return_code == 0:
-                self.output_buffer.append(_("Update completed successfully."))  # Translatable
-                GLib.idle_add(self.append_output_if_visible, _("Update completed successfully."))  # Translatable
-            else:
-                error_line = _("Update failed with return code {}.").format(return_code)  # Translatable
-                self.output_buffer.append(error_line)
-                GLib.idle_add(self.append_output_if_visible, error_line)
+    def update_output_buffer(self, text):
+        if self.progress_visible:
+            self.output_buffer.set_text(text)
+            GLib.idle_add(self.scroll_to_end)
+        return False
 
-        except Exception as e:
-            error_line = _("Error: {}").format(str(e))  # Translatable
-            self.output_buffer.append(error_line)
-            GLib.idle_add(self.append_output_if_visible, error_line)
-        finally:
-            self.is_running = False
+    def scroll_to_end(self):
+        end_iter = self.output_buffer.get_end_iter()
+        self.output_textview.scroll_to_iter(end_iter, 0.0, False, 0.0, 0.0)
+        return False
 
-            def finish_update_ui():
-                self.update_button.set_sensitive(True)
-                self.header_bar.set_sensitive(True)
-                self.header_bar.set_visible(True)
-                self.update_warning_visibility()
+    def finish_installation(self):
+        self.install_started = False
+        self.header_bar.set_sensitive(True)
+        self.header_bar.set_opacity(1)
+        self.btn_install.set_sensitive(True)
+        self.btn_toggle_progress.set_sensitive(True)
+        
+        if self.error_message:
+            self.info_label.set_markup(f'<span color="#e01b24" weight="bold" size="large">{_("Installation failed: ")}</span>\n{self.error_message}')
+            self.fail_image.set_visible(True)
+        else:
+            self.info_label.set_markup(f'<span color="#2ec27e" weight="bold" size="large">{_("Successfully updated your {}!").format(self.current_product)}</span>')
+            self.success_image.set_visible(True)
+        
+        self.content_stack.set_visible_child_name("info_message")
+        self.progress_visible = False
+        self.btn_toggle_progress.set_label(_("Show progress"))
 
-                self.status_label.set_visible(True)
-                self.text_view.set_visible(False)
-                self.scrolled_window.set_visible(False)
-                if return_code == 0:
-                    self.status_label.set_margin_top(40)
-                    self.status_label.set_markup('<span foreground="green" size="large">✅ {}</span>'.format(_("Update completed successfully.")))  # Translatable
-                else:
-                    self.status_label.set_margin_top(40)
-                    self.status_label.set_markup('<span foreground="red" size="large">❌ {}</span>'.format(_("Update failed (code {}).").format(return_code)))  # Translatable
+        return False
 
-            GLib.idle_add(finish_update_ui)
-
-    def append_output_if_visible(self, text):
-        if self.text_view.get_visible():
-            buffer = self.text_view.get_buffer()
-            end_iter = buffer.get_end_iter()
-            buffer.insert(end_iter, text + "\n")
-            self.text_view.scroll_to_iter(end_iter, 0.0, False, 0.0, 0.0)
-
-    def update_warning_visibility(self):
-        should_show = self.is_running and not self.text_view.get_visible()
-        self.warning_box.set_visible(should_show)
-
-class MyApp(Adw.Application):
+class DaVinciApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id="github.petexy.linexinupdater")
-        self.connect("activate", self.on_activate)
 
-    def on_activate(self, app):
-        window = MainWindow(self)
-        window.present()
-
-def main():
-    app = MyApp()
-    app.run()
+    def do_activate(self):
+        win = MainWindow(self)
+        win.present()
 
 if __name__ == "__main__":
-    main()
+    import sys
+    app = DaVinciApp()
+    sys.exit(app.run())
