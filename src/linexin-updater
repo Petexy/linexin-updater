@@ -122,7 +122,7 @@ class MainWindow(Adw.ApplicationWindow):
         
         if os.path.exists(fail_image_path):
             self.fail_image = Gtk.Image()
-            self.fail_image.set_from_file(image_path)
+            self.fail_image.set_from_file(fail_image_path)
             self.fail_image.set_pixel_size(100) # Set your desired image size
         else:
             self.fail_image = Gtk.Label()
@@ -135,7 +135,7 @@ class MainWindow(Adw.ApplicationWindow):
         
         if os.path.exists(success_image_path):
             self.success_image = Gtk.Image()
-            self.success_image.set_from_file(image_path)
+            self.success_image.set_from_file(success_image_path)
             self.success_image.set_pixel_size(100) # Set your desired image size
         else:
             self.success_image = Gtk.Label()
