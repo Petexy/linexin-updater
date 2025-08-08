@@ -1,7 +1,7 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=linexin-updater
-pkgver=2.0.1.r
+pkgver=2.0.2.r
 pkgrel=1
 _currentdate=$(date +"%Y-%m-%d%H-%M-%S")
 pkgdesc='An updater for Arch-based distros. One button updates system packages and Flatpaks at once'
@@ -15,6 +15,7 @@ depends=(
 )
 makedepends=(
 )
+install="${pkgname}.install"
 
 package() {
    mkdir -p ${pkgdir}/usr/bin
