@@ -5,7 +5,7 @@ post_install()
    VERSION_FILE="/version"
 
    # The date to compare against. Dates older than this are considered old.
-   CUTOFF_DATE="2025.08.08"
+   CUTOFF_DATE="2025.08.09"
 
    if [[ ! -f "$VERSION_FILE" ]]; then
       echo "Error: Version file not found at '$VERSION_FILE'." >&2
@@ -21,7 +21,7 @@ post_install()
 
    if [[ "$file_date" < "$CUTOFF_DATE" ]]; then
       # Commands executed if old version detected
-      chmod 755 "/usr/share/gnome-shell/extensions" -R
+      systemctl enable bluetooth --now
       echo "$CUTOFF_DATE" > "$VERSION_FILE"
    fi
 
