@@ -1,7 +1,7 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=linexin-updater
-pkgver=2.1.0.r
+pkgver=3.0.0.r
 pkgrel=1
 _currentdate=$(date +"%Y-%m-%d%H-%M-%S")
 pkgdesc='An updater for Arch-based distros. One button updates system packages and Flatpaks at once'
@@ -12,15 +12,19 @@ depends=(
   python-gobject
   gtk4
   libadwaita
+  linexin-center
+  linexin-upgrade-tool
 )
 makedepends=(
 )
 install="${pkgname}.install"
 
 package() {
+   mkdir -p ${pkgdir}/usr/share/linexin/widgets
    mkdir -p ${pkgdir}/usr/bin
-   cp -rf ${pkgname} ${pkgdir}/usr/bin/${pkgname}
-   mkdir -p ${pkgdir}/usr/share/locale
-   cp -rf ${srcdir}/icons ${pkgdir}/usr/share/
-   cp -rf ${srcdir}/applications ${pkgdir}/usr/share/applications
+   mkdir -p ${pkgdir}/usr/applications
+   mkdir -p ${pkgdir}/usr/icons   
+   cp -rf ${srcdir}/usr/ ${pkgdir}/
+   mv /usr/share/icons/archlinux-logo-text.svg /usr/share/pixmaps/archlinux-logo-text.svg 2>/dev/null || true
+   mv /usr/share/icons/archlinux-logo-text-dark.svg /usr/share/pixmaps/archlinux-logo-text-dark.svg 2>/dev/null || true
 }

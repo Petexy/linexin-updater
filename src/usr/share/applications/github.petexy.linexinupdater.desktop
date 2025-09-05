@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Linexin Updater
 
-Exec=linexin-updater
+Exec=linexin-center -w a-system-updater
 
 Icon=/usr/share/icons/github.petexy.linexinupdater.svg
 
@@ -9,3 +9,5 @@ Terminal=false
 Type=Application
 Categories=GTK; Update; Install; software; arch; pacman; syu;
 StartupNotify=false
+Hidden=true
+
