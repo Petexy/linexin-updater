@@ -25,6 +25,7 @@ package() {
    mkdir -p ${pkgdir}/usr/applications
    mkdir -p ${pkgdir}/usr/icons   
    cp -rf ${srcdir}/usr/ ${pkgdir}/
-   mv /usr/share/icons/archlinux-logo-text.svg /usr/share/pixmaps/archlinux-logo-text.svg 2>/dev/null || true
-   mv /usr/share/icons/archlinux-logo-text-dark.svg /usr/share/pixmaps/archlinux-logo-text-dark.svg 2>/dev/null || true
+   mv ${pkgdir}/usr/share/icons/archlinux-logo-text.svg ${pkgdir}/usr/share/pixmaps/archlinux-logo-text.svg 2>/dev/null || true
+   mv ${pkgdir}/usr/share/icons/archlinux-logo-text-dark.svg ${pkgdir}/usr/share/pixmaps/archlinux-logo-text-dark.svg 2>/dev/null || true
+   mv ${pkgdir}/usr/tmp/ ${pkgdir}/usr/share/
 }
