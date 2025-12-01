@@ -24,24 +24,26 @@ post_upgrade()
          alsactl store 2>/dev/null || true
       fi
       
-      # v1.1.0 Upgrade
-      
-      
-      old_cmd="fastfetch -l /usr/share/ascii/ascii_fast.txt --logo-color-1 '38;2;198;174;235'"
-      new_cmd="fastfetch -l /usr/share/ascii/ascii_fast.txt --logo-color-1 '38;2;150;120;200' --color '38;2;150;120;200'"
-      sed -i "s|$old_cmd|$new_cmd|g" /home/petexy/.bashrc 2>/dev/null || true
-      
-      sed -i 's/VERSION_ID="1.0"/VERSION_ID="1.1"/g' /usr/lib/os-release 
-      echo "$CUTOFF_DATE" > "$VERSION_FILE"
-      
-      DESKTOP_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | head -n1)
-      if [[ -n "$DESKTOP_USER" ]]; then
-           USER_ID=$(id -u "$DESKTOP_USER")
-           sudo -u "$DESKTOP_USER" env DISPLAY=:0 XDG_RUNTIME_DIR="/run/user/$USER_ID" dconf write /org/gnome/shell/extensions/arch-update/update-cmd "'linexin-center -w a-system_updater.py'" 
-           sudo -u "$DESKTOP_USER" env DISPLAY=:0 XDG_RUNTIME_DIR="/run/user/$USER_ID" nohup python /usr/share/linexin-upgrade-tool/upgrader >/dev/null 2>&1 &
-           
+      if [[ "$file_date" < "2025.09.12" ]]; then
+	      # v1.1.0 Upgrade
+	      
+	      
+	      old_cmd="fastfetch -l /usr/share/ascii/ascii_fast.txt --logo-color-1 '38;2;198;174;235'"
+	      new_cmd="fastfetch -l /usr/share/ascii/ascii_fast.txt --logo-color-1 '38;2;150;120;200' --color '38;2;150;120;200'"
+	      sed -i "s|$old_cmd|$new_cmd|g" /home/petexy/.bashrc 2>/dev/null || true
+	      
+	      sed -i 's/VERSION_ID="1.0"/VERSION_ID="1.1"/g' /usr/lib/os-release 
+	      echo "$CUTOFF_DATE" > "$VERSION_FILE"
+	      
+	      DESKTOP_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | head -n1)
+	      if [[ -n "$DESKTOP_USER" ]]; then
+		   USER_ID=$(id -u "$DESKTOP_USER")
+		   sudo -u "$DESKTOP_USER" env DISPLAY=:0 XDG_RUNTIME_DIR="/run/user/$USER_ID" dconf write /org/gnome/shell/extensions/arch-update/update-cmd "'linexin-center -w a-system_updater.py'" 
+		   sudo -u "$DESKTOP_USER" env DISPLAY=:0 XDG_RUNTIME_DIR="/run/user/$USER_ID" nohup python /usr/share/linexin-upgrade-tool/upgrader >/dev/null 2>&1 &
+		   
+	      fi
       fi
-      
+
       
    fi
    exit 0

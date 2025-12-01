@@ -91,8 +91,10 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.install_started = False
         self.error_message = None
         self.turn_off_after_install = False
+        self.include_aur_updates = True  # AUR updates enabled by default
         self.available_updates = []
         self.flatpak_updates = []
+        self.aur_updates = []
         self.checking_updates = False
         
         # Create main content stack
@@ -339,10 +341,27 @@ class LinexInUpdaterWidget(Gtk.Box):
         """Setup control buttons and options"""
         controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         
+        # Options container
+        options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        options_box.set_halign(Gtk.Align.CENTER)
+        options_box.set_margin_bottom(20)
+        
+        # AUR updates option
+        aur_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        aur_box.set_halign(Gtk.Align.CENTER)
+        
+        aur_label = Gtk.Label(label=_("Include AUR updates"))
+        self.aur_switch = Gtk.Switch()
+        self.aur_switch.set_active(True)  # Checked by default
+        self.aur_switch.connect("notify::active", self.on_aur_toggled)
+        
+        aur_box.append(aur_label)
+        aur_box.append(self.aur_switch)
+        options_box.append(aur_box)
+        
         # Shutdown option
         shutdown_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         shutdown_box.set_halign(Gtk.Align.CENTER)
-        shutdown_box.set_margin_bottom(20)
         
         shutdown_label = Gtk.Label(label=_("Turn off PC after update"))
         self.shutdown_switch = Gtk.Switch()
@@ -350,7 +369,9 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         shutdown_box.append(shutdown_label)
         shutdown_box.append(self.shutdown_switch)
-        controls_box.append(shutdown_box)
+        options_box.append(shutdown_box)
+        
+        controls_box.append(options_box)
         
         # Action buttons
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -429,17 +450,14 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.check_for_updates()
             self.updates_checked = True   # Set flag after check
 
+    def on_aur_toggled(self, switch, param):
+        """Handle AUR toggle switch"""
+        self.include_aur_updates = switch.get_active()
+        # Update the displayed updates list
+        self.update_displayed_updates()
     
-    def check_for_updates(self):
-        """Check for available updates without root privileges"""
-        if self.checking_updates:
-            return
-        
-        self.checking_updates = True
-        self.refresh_button.set_sensitive(False)
-        self.btn_install.set_sensitive(False)
-        self.updates_subtitle.set_text(_("Checking for updates..."))
-        
+    def update_displayed_updates(self):
+        """Update the displayed updates list based on AUR toggle"""
         # Clear existing updates
         child = self.updates_listbox.get_first_child()
         while child:
@@ -447,72 +465,11 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.updates_listbox.remove(child)
             child = next_child
         
-        def check_updates():
-            try:
-                self.available_updates = []
-                self.flatpak_updates = []
-                
-                # Check pacman updates
-                try:
-                    result = subprocess.run(['checkupdates'], 
-                                          capture_output=True, text=True, timeout=30)
-                    if result.returncode == 0 and result.stdout.strip():
-                        for line in result.stdout.strip().split('\n'):
-                            if ' ' in line:
-                                parts = line.split()
-                                if len(parts) >= 4:
-                                    package = parts[0]
-                                    current_version = parts[1]
-                                    arrow = parts[2]  # Should be '->'
-                                    new_version = parts[3]
-                                    repo = parts[4] if len(parts) > 4 else ""
-                                    
-                                    self.available_updates.append({
-                                        'name': package,
-                                        'current': current_version,
-                                        'new': new_version,
-                                        'repo': repo,
-                                        'type': 'pacman'
-                                    })
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    pass  # checkupdates not available or failed
-                
-                # Check flatpak updates
-                try:
-                    result = subprocess.run(['flatpak', 'remote-ls', '--updates'], 
-                                          capture_output=True, text=True, timeout=30)
-                    if result.returncode == 0 and result.stdout.strip():
-                        for line in result.stdout.strip().split('\n'):
-                            parts = line.split('\t')
-                            if len(parts) >= 3:
-                                app_id = parts[0]
-                                version = parts[1]
-                                branch = parts[2]
-                                
-                                self.flatpak_updates.append({
-                                    'name': app_id.split('.')[-1] if '.' in app_id else app_id,
-                                    'current': _("installed"),
-                                    'new': version,
-                                    'repo': f"flatpak ({branch})",
-                                    'type': 'flatpak'
-                                })
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    pass  # flatpak not available or failed
-                
-            except Exception as e:
-                GLib.idle_add(self.on_update_check_error, str(e))
-                return
-            
-            GLib.idle_add(self.on_updates_checked)
-        
-        threading.Thread(target=check_updates, daemon=True).start()
-    
-    def on_updates_checked(self):
-        """Handle completion of update check"""
-        self.checking_updates = False
-        self.refresh_button.set_sensitive(True)
-        
-        total_updates = len(self.available_updates) + len(self.flatpak_updates)
+        # Calculate total updates based on AUR setting
+        if self.include_aur_updates:
+            total_updates = len(self.available_updates) + len(self.flatpak_updates) + len(self.aur_updates)
+        else:
+            total_updates = len(self.available_updates) + len(self.flatpak_updates)
         
         if total_updates == 0:
             self.updates_subtitle.set_text(_("System is up to date"))
@@ -559,6 +516,17 @@ class LinexInUpdaterWidget(Gtk.Box):
                 )
                 self.updates_listbox.append(row)
             
+            # Add AUR updates only if enabled
+            if self.include_aur_updates:
+                for update in self.aur_updates:
+                    row = self.create_update_row(
+                        update['name'], 
+                        update['current'], 
+                        update['new'], 
+                        update['repo']
+                    )
+                    self.updates_listbox.append(row)
+
             # Add flatpak updates
             for update in self.flatpak_updates:
                 row = self.create_update_row(
@@ -568,6 +536,116 @@ class LinexInUpdaterWidget(Gtk.Box):
                     update['repo']
                 )
                 self.updates_listbox.append(row)
+    
+    def check_for_updates(self):
+        """Check for available updates without root privileges"""
+        if self.checking_updates:
+            return
+        
+        self.checking_updates = True
+        self.refresh_button.set_sensitive(False)
+        self.btn_install.set_sensitive(False)
+        self.updates_subtitle.set_text(_("Checking for updates..."))
+        
+        # Clear existing updates
+        child = self.updates_listbox.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            self.updates_listbox.remove(child)
+            child = next_child
+        
+        def check_updates():
+            try:
+                self.available_updates = []
+                self.aur_updates = []
+                self.flatpak_updates = []
+                
+                # Check pacman updates
+                try:
+                    result = subprocess.run(['checkupdates'], 
+                                          capture_output=True, text=True, timeout=30)
+                    if result.returncode == 0 and result.stdout.strip():
+                        for line in result.stdout.strip().split('\n'):
+                            if ' ' in line:
+                                parts = line.split()
+                                if len(parts) >= 4:
+                                    package = parts[0]
+                                    current_version = parts[1]
+                                    arrow = parts[2]  # Should be '->'
+                                    new_version = parts[3]
+                                    repo = parts[4] if len(parts) > 4 else ""
+                                    
+                                    self.available_updates.append({
+                                        'name': package,
+                                        'current': current_version,
+                                        'new': new_version,
+                                        'repo': repo,
+                                        'type': 'pacman'
+                                    })
+                except (subprocess.SubprocessError, FileNotFoundError):
+                    pass  # checkupdates not available or failed
+                
+                try:
+                    result = subprocess.run(['paru', '-Qu'], 
+                                          capture_output=True, text=True, timeout=30)
+                    if result.returncode == 0 and result.stdout.strip():
+                        for line in result.stdout.strip().split('\n'):
+                            if ' ' in line:
+                                parts = line.split()
+                                if len(parts) >= 4:
+                                    package = parts[0]
+                                    current_version = parts[1]
+                                    arrow = parts[2] 
+                                    new_version = parts[3]
+                                    repo = parts[4] if len(parts) > 4 else ""
+                                    
+                                    self.aur_updates.append({
+                                        'name': package,
+                                        'current': current_version,
+                                        'new': new_version,
+                                        'repo': repo,
+                                        'type': 'AUR'
+                                    })
+                except (subprocess.SubprocessError, FileNotFoundError):
+                    pass  # checkupdates not available or failed
+
+                # Check flatpak updates
+                try:
+                    result = subprocess.run(['flatpak', 'remote-ls', '--updates'], 
+                                          capture_output=True, text=True, timeout=30)
+                    if result.returncode == 0 and result.stdout.strip():
+                        for line in result.stdout.strip().split('\n'):
+                            parts = line.split('\t')
+                            if len(parts) >= 3:
+                                app_id = parts[0]
+                                version = parts[1]
+                                branch = parts[2]
+                                
+                                self.flatpak_updates.append({
+                                    'name': app_id.split('.')[-1] if '.' in app_id else app_id,
+                                    'current': _("installed"),
+                                    'new': version,
+                                    'repo': f"flatpak ({branch})",
+                                    'type': 'flatpak'
+                                })
+                except (subprocess.SubprocessError, FileNotFoundError):
+                    pass  # flatpak not available or failed
+                
+            except Exception as e:
+                GLib.idle_add(self.on_update_check_error, str(e))
+                return
+            
+            GLib.idle_add(self.on_updates_checked)
+        
+        threading.Thread(target=check_updates, daemon=True).start()
+    
+    def on_updates_checked(self):
+        """Handle completion of update check"""
+        self.checking_updates = False
+        self.refresh_button.set_sensitive(True)
+        
+        # Use the common method to display updates
+        self.update_displayed_updates()
         
         return False
     
@@ -608,7 +686,13 @@ class LinexInUpdaterWidget(Gtk.Box):
         """Handle install button click"""
         product_name = distro.name()
         self.btn_retry.set_visible(False)
-        command = f"echo Updating {product_name}... && run0 pacman -Syu --noconfirm && flatpak update --assumeyes"
+        
+        # Choose command based on AUR toggle
+        if self.include_aur_updates:
+            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --sudo run0 && flatpak update --assumeyes"
+        else:
+            command = f"echo Updating {product_name}... && run0 pacman -Syu --noconfirm && flatpak update --assumeyes"
+        
         self.begin_install(command, product_name)
     
     def begin_install(self, command, product_name):
@@ -696,6 +780,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         """Handle installation completion"""
         self.install_started = False
         self.btn_install.set_sensitive(True)
+        self.btn_install.set_visible(True)
         self.btn_toggle_progress.set_sensitive(True)
         
         if self.error_message:
@@ -704,7 +789,9 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.fail_image.set_visible(True)
             self.btn_retry.set_visible(True)
             self.btn_retry.add_css_class("suggested-action")
-            self.toggle_button.set_visible(False)
+            self.btn_install.set_visible(False)
+            if hasattr(self, 'toggle_button'):
+                self.toggle_button.set_visible(False)
         else:
             self.info_label.set_markup(f'<span color="#2ec27e" weight="bold" size="large">{_("Successfully updated your {}!").format(self.current_product)}</span>')
             self.sound_player.play_sound("/usr/share/linexin/widgets/sounds/confirm.ogg")

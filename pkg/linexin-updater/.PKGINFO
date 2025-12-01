@@ -3,12 +3,12 @@
 pkgname = linexin-updater
 pkgbase = linexin-updater
 xdata = pkgtype=pkg
-pkgver = 3.0.0.r-1
+pkgver = 3.1.0.r-1
 pkgdesc = An updater for Arch-based distros. One button updates system packages and Flatpaks at once
 url = https://github.com/Petexy
-builddate = 1757276913
+builddate = 1764609496
 packager = Unknown Packager
-size = 247309
+size = 251228
 arch = x86_64
 license = GPL-3.0
 depend = python-gobject
