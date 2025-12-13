@@ -687,11 +687,27 @@ class LinexInUpdaterWidget(Gtk.Box):
         product_name = distro.name()
         self.btn_retry.set_visible(False)
         
+        # Check if kwin is being updated (in pacman updates)
+        kwin_being_updated = False
+        for update in self.available_updates:
+            if update['name'] == 'kwin':
+                kwin_being_updated = True
+                break
+        
         # Choose command based on AUR toggle
+        # Note: paru must NOT run as root, but it needs privilege escalation for pacman operations
+        # We use --sudo run0 to tell paru to use run0 instead of sudo for GUI authentication
         if self.include_aur_updates:
-            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --sudo run0 && flatpak update --assumeyes"
+            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --sudo run0"
         else:
-            command = f"echo Updating {product_name}... && run0 pacman -Syu --noconfirm && flatpak update --assumeyes"
+            command = f"echo Updating {product_name}... && run0 pacman -Syu --noconfirm"
+        
+        # If kwin is being updated, ALWAYS force reinstall kwin effect packages (regardless of AUR toggle)
+        # These packages are needed for system stability and break when kwin is updated
+        if kwin_being_updated:
+            command += " && echo Reinstalling kwin effects packages... && paru -S --noconfirm --sudo run0 --rebuild kwin-effects-forceblur kwin-effect-rounded-corners-git"
+        
+        command += " && flatpak update --assumeyes"
         
         self.begin_install(command, product_name)
     
