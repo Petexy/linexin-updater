@@ -343,33 +343,59 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         # Options container
         options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        options_box.set_halign(Gtk.Align.CENTER)
+        options_box.set_halign(Gtk.Align.FILL)
         options_box.set_margin_bottom(20)
+        options_box.set_margin_start(30)  # Match updates_box margins
+        options_box.set_margin_end(30)    # Match updates_box margins
         
-        # AUR updates option
-        aur_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        aur_box.set_halign(Gtk.Align.CENTER)
+        # Create ListBox for ActionRows (needed for activatable behavior)
+        options_listbox = Gtk.ListBox()
+        options_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         
-        aur_label = Gtk.Label(label=_("Include AUR updates"))
+        # Add CSS to make it transparent and clean
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(b"""
+            listbox {
+                background: transparent;
+                border: none;
+            }
+            listbox > row {
+                background: transparent;
+                border: none;
+            }
+        """)
+        options_listbox.get_style_context().add_provider(
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        
+        # AUR updates option with info
+        aur_row = Adw.ActionRow()
+        aur_row.set_title(_("Include AUR updates"))
+        aur_row.set_subtitle(_("When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage"))
+        
         self.aur_switch = Gtk.Switch()
         self.aur_switch.set_active(True)  # Checked by default
+        self.aur_switch.set_valign(Gtk.Align.CENTER)
         self.aur_switch.connect("notify::active", self.on_aur_toggled)
+        aur_row.add_suffix(self.aur_switch)
+        aur_row.set_activatable_widget(self.aur_switch)
         
-        aur_box.append(aur_label)
-        aur_box.append(self.aur_switch)
-        options_box.append(aur_box)
+        options_listbox.append(aur_row)
         
         # Shutdown option
-        shutdown_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        shutdown_box.set_halign(Gtk.Align.CENTER)
+        shutdown_row = Adw.ActionRow()
+        shutdown_row.set_title(_("Turn off PC after update"))
         
-        shutdown_label = Gtk.Label(label=_("Turn off PC after update"))
         self.shutdown_switch = Gtk.Switch()
+        self.shutdown_switch.set_valign(Gtk.Align.CENTER)
         self.shutdown_switch.connect("notify::active", self.on_shutdown_toggled)
+        shutdown_row.add_suffix(self.shutdown_switch)
+        shutdown_row.set_activatable_widget(self.shutdown_switch)
         
-        shutdown_box.append(shutdown_label)
-        shutdown_box.append(self.shutdown_switch)
-        options_box.append(shutdown_box)
+        options_listbox.append(shutdown_row)
+        
+        options_box.append(options_listbox)
         
         controls_box.append(options_box)
         
@@ -599,13 +625,18 @@ class LinexInUpdaterWidget(Gtk.Box):
                                     new_version = parts[3]
                                     repo = parts[4] if len(parts) > 4 else ""
                                     
-                                    self.aur_updates.append({
-                                        'name': package,
-                                        'current': current_version,
-                                        'new': new_version,
-                                        'repo': repo,
-                                        'type': 'AUR'
-                                    })
+                                    # Only add if it's from AUR (not official repos)
+                                    # Check if package is already in available_updates (official repos)
+                                    is_duplicate = any(pkg['name'] == package for pkg in self.available_updates)
+                                    
+                                    if not is_duplicate:
+                                        self.aur_updates.append({
+                                            'name': package,
+                                            'current': current_version,
+                                            'new': new_version,
+                                            'repo': repo if repo else "AUR",
+                                            'type': 'AUR'
+                                        })
                 except (subprocess.SubprocessError, FileNotFoundError):
                     pass  # checkupdates not available or failed
 
@@ -678,6 +709,60 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         return False
     
+    def get_aur_helper_rebuild_command(self):
+        """Check if AUR helper needs to be rebuilt (returns True/False)"""
+        try:
+            # Check if paru is installed
+            result = subprocess.run(['pacman', '-Q', 'paru'], capture_output=True, text=True)
+            if result.returncode == 0:
+                return True
+            
+            # Check if yay is installed
+            result = subprocess.run(['pacman', '-Q', 'yay'], capture_output=True, text=True)
+            if result.returncode == 0:
+                return True
+        except:
+            pass
+        
+        # No AUR helper found or error occurred
+        return False
+    
+    def get_kwin_effects_rebuild_command(self):
+        """Check if kwin is being updated and return package names that need rebuilding"""
+        # Check if kwin is in the updates list
+        kwin_update = False
+        for update in self.available_updates:
+            if 'kwin' in update.get('name', '').lower():
+                kwin_update = True
+                break
+        
+        if not kwin_update:
+            return ""
+        
+        # Check if the kwin effect packages are installed
+        rebuild_packages = []
+        
+        try:
+            result = subprocess.run(['pacman', '-Q', 'kwin-effects-forceblur'], capture_output=True, text=True)
+            if result.returncode == 0:
+                rebuild_packages.append('kwin-effects-forceblur')
+        except:
+            pass
+        
+        try:
+            result = subprocess.run(['pacman', '-Q', 'kwin-effect-rounded-corners-git'], capture_output=True, text=True)
+            if result.returncode == 0:
+                rebuild_packages.append('kwin-effect-rounded-corners-git')
+        except:
+            pass
+        
+        if not rebuild_packages:
+            return ""
+        
+        # Return space-separated package names
+        return ' '.join(rebuild_packages)
+
+    
     def on_shutdown_toggled(self, switch, param):
         """Handle shutdown toggle switch"""
         self.turn_off_after_install = switch.get_active()
@@ -687,27 +772,30 @@ class LinexInUpdaterWidget(Gtk.Box):
         product_name = distro.name()
         self.btn_retry.set_visible(False)
         
-        # Check if kwin is being updated (in pacman updates)
-        kwin_being_updated = False
-        for update in self.available_updates:
-            if update['name'] == 'kwin':
-                kwin_being_updated = True
-                break
-        
         # Choose command based on AUR toggle
-        # Note: paru must NOT run as root, but it needs privilege escalation for pacman operations
-        # We use --sudo run0 to tell paru to use run0 instead of sudo for GUI authentication
         if self.include_aur_updates:
-            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --sudo run0"
+            # When including AUR updates, kwin effects will be updated automatically
+            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --sudo run0 && flatpak update --assumeyes"
         else:
-            command = f"echo Updating {product_name}... && run0 pacman -Syu --noconfirm"
-        
-        # If kwin is being updated, ALWAYS force reinstall kwin effect packages (regardless of AUR toggle)
-        # These packages are needed for system stability and break when kwin is updated
-        if kwin_being_updated:
-            command += " && echo Reinstalling kwin effects packages... && paru -S --noconfirm --sudo run0 --rebuild kwin-effects-forceblur kwin-effect-rounded-corners-git"
-        
-        command += " && flatpak update --assumeyes"
+            # When skipping AUR updates, rebuild the AUR helper and kwin effects
+            # Wrap system update operations in a single run0 to avoid multiple password prompts
+            aur_helper_rebuild = self.get_aur_helper_rebuild_command()
+            kwin_effects_packages = self.get_kwin_effects_rebuild_command()
+            
+            # Build the privileged commands block for system update
+            privileged_cmds = "pacman -Syu --noconfirm"
+            if aur_helper_rebuild:
+                privileged_cmds += " && echo 'Reinstalling paru to relink against new libalpm...' && pacman -S --noconfirm paru"
+            
+            # Start with system update in single run0
+            command = f"echo Updating {product_name}... && run0 sh -c '{privileged_cmds}'"
+            
+            # Add flatpak update
+            command += " && flatpak update --assumeyes"
+            
+            # Add kwin effects rebuild if needed (paru runs as regular user with --sudo run0)
+            if kwin_effects_packages:
+                command += f" && echo 'Rebuilding kwin effects to relink against new kwin...' && paru -S --rebuild --noconfirm --sudo run0 {kwin_effects_packages}"
         
         self.begin_install(command, product_name)
     
