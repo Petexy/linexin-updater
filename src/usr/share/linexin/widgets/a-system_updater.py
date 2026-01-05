@@ -6,6 +6,7 @@ import threading
 import gettext
 import locale
 import os
+import stat
 import distro
 
 gi.require_version("Gtk", "4.0")
@@ -97,6 +98,16 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.aur_updates = []
         self.checking_updates = False
         
+        # --- Password and Retry Logic State ---
+        self.user_password = None
+        self.retry_in_progress = False
+        self.detected_alpm_error = False
+        self.last_command = ""
+        
+        self.askpass_script = "/tmp/linexin-askpass.sh"
+        self.sudo_wrapper = "/tmp/linexin-sudo.sh"
+        # ------------------------------
+        
         # Create main content stack
         self.content_stack = Gtk.Stack()
         self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_UP_DOWN)
@@ -114,10 +125,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.setup_controls()
         
         # Set initial view and check for updates
-        
         self.updates_checked = False
-
-
         self.window = window
         self.hide_sidebar = hide_sidebar
 
@@ -743,9 +751,9 @@ class LinexInUpdaterWidget(Gtk.Box):
         rebuild_packages = []
         
         try:
-            result = subprocess.run(['pacman', '-Q', 'kwin-effects-forceblur'], capture_output=True, text=True)
+            result = subprocess.run(['pacman', '-Q', 'kwin-effects-glass-git'], capture_output=True, text=True)
             if result.returncode == 0:
-                rebuild_packages.append('kwin-effects-forceblur')
+                rebuild_packages.append('kwin-effects-glass-git')
         except:
             pass
         
@@ -767,35 +775,106 @@ class LinexInUpdaterWidget(Gtk.Box):
         """Handle shutdown toggle switch"""
         self.turn_off_after_install = switch.get_active()
     
+    def prompt_for_password(self):
+        """Prompt user for sudo password using Adw.MessageDialog"""
+        # Use root widget or fallback to self
+        root = self.get_root()
+        if not root:
+            # If the widget isn't fully realized in the window yet,
+            # we might need to rely on the parent window passed in __init__ if available,
+            # or skip transient_for (which is okay for AdwDialog)
+            root = self.window
+            
+        dialog = Adw.MessageDialog(
+            heading=_("Authentication Required"),
+            body=_("Please enter your password to proceed with the system update."),
+            transient_for=root
+        )
+        
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("unlock", _("Unlock"))
+        dialog.set_response_appearance("unlock", Adw.ResponseAppearance.SUGGESTED)
+        
+        # Create input box
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        
+        entry = Gtk.PasswordEntry()
+        # FIX: Use set_property instead of set_placeholder_text if the binding is missing
+        entry.set_property("placeholder-text", _("Password"))
+        # FIX: Remove set_activates_default as it's not in GtkPasswordEntry
+        # entry.set_activates_default(True) 
+        box.append(entry)
+        
+        dialog.set_extra_child(box)
+        
+        def on_response(dialog, response):
+            if response == "unlock":
+                pwd = entry.get_text()
+                if pwd:
+                    self.user_password = pwd
+                    # Restart install logic
+                    self.on_install_clicked(None)
+            dialog.close()
+            
+        dialog.connect("response", on_response)
+        
+        # Also connect entry activation to trigger unlock response
+        def on_entry_activate(widget):
+            dialog.response("unlock")
+            
+        entry.connect("activate", on_entry_activate)
+        
+        dialog.present()
+
+    def setup_sudo_env(self):
+        """Create helper scripts for non-interactive sudo"""
+        # 1. Askpass Helper
+        with open(self.askpass_script, "w") as f:
+            f.write("#!/bin/sh\necho \"$LINEXIN_SUDO_PW\"\n")
+        os.chmod(self.askpass_script, 0o700)
+        
+        # 2. Sudo Wrapper (to force -A)
+        # This wrapper forces sudo to use the askpass script we created
+        with open(self.sudo_wrapper, "w") as f:
+            f.write(f"#!/bin/sh\nexport SUDO_ASKPASS='{self.askpass_script}'\nexec sudo -A \"$@\"\n")
+        os.chmod(self.sudo_wrapper, 0o700)
+
     def on_install_clicked(self, button):
         """Handle install button click"""
+        # --- CHECK PASSWORD FIRST ---
+        if not self.user_password:
+            self.prompt_for_password()
+            return
+        
+        # Setup helpers immediately
+        self.setup_sudo_env()
+        
         product_name = distro.name()
         self.btn_retry.set_visible(False)
         
+        # Define the privileged command prefix (replaces 'run0')
+        # We use our wrapper which forces 'sudo -A' reading env var
+        priv_cmd = self.sudo_wrapper
+        
         # Choose command based on AUR toggle
         if self.include_aur_updates:
-            # When including AUR updates, kwin effects will be updated automatically
-            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --sudo run0 && flatpak update --assumeyes"
+            # We pass the wrapper to paru's --sudo flag
+            # Note: paru executes [wrapper] [args], so our wrapper calling 'sudo -A' works
+            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --sudo '{self.sudo_wrapper}' && flatpak update --assumeyes"
         else:
-            # When skipping AUR updates, rebuild the AUR helper and kwin effects
-            # Wrap system update operations in a single run0 to avoid multiple password prompts
             aur_helper_rebuild = self.get_aur_helper_rebuild_command()
             kwin_effects_packages = self.get_kwin_effects_rebuild_command()
             
-            # Build the privileged commands block for system update
-            privileged_cmds = "pacman -Syu --noconfirm"
+            # System update uses our wrapper directly
+            privileged_cmds = f"{priv_cmd} pacman -Syu --noconfirm"
             if aur_helper_rebuild:
-                privileged_cmds += " && echo 'Reinstalling paru to relink against new libalpm...' && pacman -S --noconfirm paru"
+                privileged_cmds += f" && echo 'Reinstalling paru to relink against new libalpm...' && {priv_cmd} pacman -S --noconfirm paru"
             
-            # Start with system update in single run0
-            command = f"echo Updating {product_name}... && run0 sh -c '{privileged_cmds}'"
-            
-            # Add flatpak update
+            command = f"echo Updating {product_name}... && sh -c '{privileged_cmds}'"
             command += " && flatpak update --assumeyes"
             
-            # Add kwin effects rebuild if needed (paru runs as regular user with --sudo run0)
             if kwin_effects_packages:
-                command += f" && echo 'Rebuilding kwin effects to relink against new kwin...' && paru -S --rebuild --noconfirm --sudo run0 {kwin_effects_packages}"
+                command += f" && echo 'Rebuilding kwin effects to relink against new kwin...' && paru -S --overwrite '*' --rebuild --noconfirm --sudo '{self.sudo_wrapper}' {kwin_effects_packages}"
         
         self.begin_install(command, product_name)
     
@@ -821,6 +900,11 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.btn_toggle_progress.set_label(_("Show Progress"))
         self.output_buffer.set_text("")
         
+        # Store command and reset retry flags
+        self.last_command = command
+        self.retry_in_progress = False
+        self.detected_alpm_error = False
+        
         self.run_shell_command(command)
     
     def on_toggle_progress_clicked(self, button):
@@ -840,17 +924,27 @@ class LinexInUpdaterWidget(Gtk.Box):
         """Execute shell command in a separate thread"""
         def stream_output():
             try:
+                # Inject password into environment for our askpass helper
+                env = os.environ.copy()
+                if self.user_password:
+                    env['LINEXIN_SUDO_PW'] = self.user_password
+                    
                 process = subprocess.Popen(command,
                     shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     encoding='utf-8',
-                    errors='replace'
+                    errors='replace',
+                    env=env  # Pass the env with password
                 )
                 
                 for line in iter(process.stdout.readline, ''):
                     if line:
+                        # Check for the specific error that requires a paru rebuild
+                        if "error while loading shared libraries: libalpm.so" in line:
+                            self.detected_alpm_error = True
+                        
                         self.progress_data += line
                         GLib.idle_add(self.update_output_buffer, self.progress_data)
                 
@@ -882,6 +976,53 @@ class LinexInUpdaterWidget(Gtk.Box):
     
     def finish_installation(self):
         """Handle installation completion"""
+        # --- NEW LOGIC START: Manual Repair via AUR ---
+        if self.error_message and self.detected_alpm_error and not self.retry_in_progress:
+            # Entering retry mode
+            self.retry_in_progress = True
+            self.error_message = None # Clear error to prevent immediate fail
+            self.detected_alpm_error = False # Reset detection
+            
+            # Notify user in the log
+            repair_msg = f"\n\n{_('--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---')}\n"
+            self.progress_data += repair_msg
+            self.update_output_buffer(self.progress_data)
+            
+            # Helper for privileged commands
+            priv = self.sudo_wrapper
+            
+            # Construct the repair command:
+            # 1. Clean/Create temp dir
+            # 2. wget source snapshot from AUR (paru, NOT paru-bin)
+            # 3. untar
+            # 4. makepkg (BUILD ONLY, NO -i)
+            # 5. REMOVE broken paru variants (Fixes conflict) - using wrapper
+            # 6. INSTALL new paru (Fixes sudo auth) AND Overwrite files - using wrapper
+            repair_cmd = (
+                "rm -rf /tmp/paru_repair && "
+                "mkdir -p /tmp/paru_repair && "
+                "cd /tmp/paru_repair && "
+                "echo 'Downloading paru source from AUR...' && "
+                "wget -qO paru.tar.gz https://aur.archlinux.org/cgit/aur.git/snapshot/paru.tar.gz && "
+                "echo 'Extracting...' && "
+                "tar -xzf paru.tar.gz && "
+                "cd paru && "
+                "echo 'Compiling paru from source (this may take a while)...' && "
+                "makepkg --noconfirm && "
+                "echo 'Removing old conflicting packages...' && "
+                f"{priv} sh -c 'pacman -Rdd --noconfirm paru paru-bin paru-debug paru-bin-debug 2>/dev/null || true; pacman -U --noconfirm --overwrite \"*\" *.pkg.tar.zst'"
+            )
+            
+            # Chain: Repair -> Retry Original Command
+            retry_cmd = f"{repair_cmd} && echo '--- Repair complete, retrying system update... ---' && {self.last_command}"
+            
+            # Restart the shell thread with the new command chain
+            self.run_shell_command(retry_cmd)
+            
+            # Return False to stop this function from resetting the UI
+            return False
+        # --- NEW LOGIC END ---
+
         self.install_started = False
         self.btn_install.set_sensitive(True)
         self.btn_install.set_visible(True)
