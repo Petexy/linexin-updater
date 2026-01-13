@@ -597,7 +597,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                 # Check pacman updates
                 try:
                     result = subprocess.run(['checkupdates'], 
-                                          capture_output=True, text=True, timeout=30)
+                                          capture_output=True, text=True, timeout=30, env={'LC_ALL': 'C'})
                     if result.returncode == 0 and result.stdout.strip():
                         for line in result.stdout.strip().split('\n'):
                             if ' ' in line:
@@ -621,7 +621,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                 
                 try:
                     result = subprocess.run(['paru', '-Qu'], 
-                                          capture_output=True, text=True, timeout=30)
+                                          capture_output=True, text=True, timeout=30, env={'LC_ALL': 'C'})
                     if result.returncode == 0 and result.stdout.strip():
                         for line in result.stdout.strip().split('\n'):
                             if ' ' in line:
@@ -648,27 +648,78 @@ class LinexInUpdaterWidget(Gtk.Box):
                 except (subprocess.SubprocessError, FileNotFoundError):
                     pass  # checkupdates not available or failed
 
-                # Check flatpak updates
+                # Check flatpak updates - ROBUST & PER-REMOTE METHOD
                 try:
-                    result = subprocess.run(['flatpak', 'remote-ls', '--updates'], 
-                                          capture_output=True, text=True, timeout=30)
-                    if result.returncode == 0 and result.stdout.strip():
-                        for line in result.stdout.strip().split('\n'):
-                            parts = line.split('\t')
-                            if len(parts) >= 3:
-                                app_id = parts[0]
-                                version = parts[1]
-                                branch = parts[2]
+                    all_flatpak_updates = []
+                    seen_ids = set()
+
+                    def get_updates_for_scope(scope_flag, scope_name):
+                        updates = []
+                        try:
+                            # 1. Get list of remotes for this scope
+                            remotes_cmd = ['flatpak', 'remotes', scope_flag, '--columns=name']
+                            res = subprocess.run(remotes_cmd, capture_output=True, text=True, timeout=10, env={'LC_ALL': 'C'})
+                            
+                            if res.returncode != 0:
+                                return updates
+
+                            remotes = [r.strip() for r in res.stdout.strip().split('\n') if r.strip()]
+
+                            # 2. Check updates for each remote individually
+                            for remote in remotes:
+                                try:
+                                    # Check updates specifically for this remote
+                                    cmd = ['flatpak', 'remote-ls', scope_flag, '--updates', '--columns=ref,version', remote]
+                                    # Shorter timeout per remote to fail fast on broken ones
+                                    r_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15, env={'LC_ALL': 'C'})
+                                    
+                                    if r_res.returncode == 0 and r_res.stdout.strip():
+                                        for line in r_res.stdout.strip().split('\n'):
+                                            parts = line.split()
+                                            if len(parts) >= 1:
+                                                ref = parts[0]
+                                                version = parts[1] if len(parts) > 1 else ""
+                                                
+                                                # Parse ref: type/id/arch/branch
+                                                ref_parts = ref.split('/')
+                                                if len(ref_parts) >= 4:
+                                                    app_id = ref_parts[1]
+                                                    branch = ref_parts[3]
+                                                    
+                                                    updates.append({
+                                                        'name': app_id.split('.')[-1] if '.' in app_id else app_id,
+                                                        'current': _("installed"),
+                                                        'new': version if version else _("new version"),
+                                                        'repo': f"{remote} ({scope_name})",
+                                                        'app_id': app_id,
+                                                        'type': 'flatpak'
+                                                    })
+                                except Exception:
+                                    continue # Skip broken remote silently
+                                    
+                        except Exception:
+                            pass
+                        return updates
+
+                    # Check System
+                    sys_ups = get_updates_for_scope('--system', 'system')
+                    for up in sys_ups:
+                        if up['app_id'] not in seen_ids:
+                            all_flatpak_updates.append(up)
+                            seen_ids.add(up['app_id'])
+
+                    # Check User
+                    user_ups = get_updates_for_scope('--user', 'user')
+                    for up in user_ups:
+                        if up['app_id'] not in seen_ids:
+                            all_flatpak_updates.append(up)
+                            seen_ids.add(up['app_id'])
+
+                    self.flatpak_updates = all_flatpak_updates
                                 
-                                self.flatpak_updates.append({
-                                    'name': app_id.split('.')[-1] if '.' in app_id else app_id,
-                                    'current': _("installed"),
-                                    'new': version,
-                                    'repo': f"flatpak ({branch})",
-                                    'type': 'flatpak'
-                                })
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    pass  # flatpak not available or failed
+                except Exception as e:
+                    # Log error but don't fail the whole check
+                    print(f"Flatpak check error: {e}")
                 
             except Exception as e:
                 GLib.idle_add(self.on_update_check_error, str(e))
@@ -799,10 +850,8 @@ class LinexInUpdaterWidget(Gtk.Box):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         
         entry = Gtk.PasswordEntry()
-        # FIX: Use set_property instead of set_placeholder_text if the binding is missing
         entry.set_property("placeholder-text", _("Password"))
-        # FIX: Remove set_activates_default as it's not in GtkPasswordEntry
-        # entry.set_activates_default(True) 
+        # Removed set_activates_default as it's not available in standard GTK4 Python bindings for PasswordEntry
         box.append(entry)
         
         dialog.set_extra_child(box)
@@ -818,7 +867,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             
         dialog.connect("response", on_response)
         
-        # Also connect entry activation to trigger unlock response
+        # Manually trigger response when Enter key is pressed
         def on_entry_activate(widget):
             dialog.response("unlock")
             
@@ -920,6 +969,16 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.btn_toggle_progress.set_label(_("Show Progress"))
             self.content_stack.set_visible_child_name("info_view")
     
+    def append_to_log(self, text):
+        """Append text to output buffer and scroll"""
+        if self.progress_visible:
+            end_iter = self.output_buffer.get_end_iter()
+            self.output_buffer.insert(end_iter, text)
+            # Create a mark at the end to ensure scrolling follows
+            mark = self.output_buffer.create_mark(None, end_iter, False)
+            self.output_textview.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
+        return False
+
     def run_shell_command(self, command):
         """Execute shell command in a separate thread"""
         def stream_output():
@@ -946,7 +1005,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                             self.detected_alpm_error = True
                         
                         self.progress_data += line
-                        GLib.idle_add(self.update_output_buffer, self.progress_data)
+                        GLib.idle_add(self.append_to_log, line)
                 
                 process.stdout.close()
                 return_code = process.wait()
@@ -955,7 +1014,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             except Exception as e:
                 self.error_message = str(e)
                 self.progress_data += _("\nError: {}").format(e)
-                GLib.idle_add(self.update_output_buffer, self.progress_data)
+                GLib.idle_add(self.append_to_log, _("\nError: {}").format(e))
             
             GLib.idle_add(self.finish_installation)
         
@@ -986,7 +1045,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             # Notify user in the log
             repair_msg = f"\n\n{_('--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---')}\n"
             self.progress_data += repair_msg
-            self.update_output_buffer(self.progress_data)
+            self.append_to_log(repair_msg)
             
             # Helper for privileged commands
             priv = self.sudo_wrapper
