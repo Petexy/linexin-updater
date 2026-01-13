@@ -20,5 +20,7 @@ translations = {
     "Process exited with code {}": "प्रक्रिया कोड {} के साथ समाप्त हुई",
     "\nError: {}": "\nत्रुटि: {}",
     "Installation failed: ": "इंस्टॉलेशन असफल रहा: ",
-    "Successfully updated your {}!": "आपका {} सफलतापूर्वक अपडेट हो गया!"
+    "Successfully updated your {}!": "आपका {} सफलतापूर्वक अपडेट हो गया!",
+    "Include AUR updates": "AUR अपडेट शामिल करें",
+    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "अक्षम होने पर, किसी भी त्रुटि को रोकने के लिए AUR हेल्पर (paru/yay) और KWin इफेक्ट्स अपने आप रीबिल्ड (rebuild) हो जाएंगे।"
 }

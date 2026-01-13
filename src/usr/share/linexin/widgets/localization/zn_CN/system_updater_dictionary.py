@@ -20,5 +20,7 @@ translations = {
     "Process exited with code {}": "进程已退出，代码 {}",
     "\nError: {}": "\n错误: {}",
     "Installation failed: ": "安装失败: ",
-    "Successfully updated your {}!": "您的 {} 已成功更新！"
+    "Successfully updated your {}!": "您的 {} 已成功更新！",
+    "Include AUR updates": "包含 AUR 更新",
+    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "禁用时，AUR 助手 (paru/yay) 和 KWin 特效将自动重新构建，以防止损坏。"
 }

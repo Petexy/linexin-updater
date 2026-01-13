@@ -20,5 +20,7 @@ translations = {
     "Process exited with code {}": "Процесс завершился с кодом {}",
     "\nError: {}": "\nОшибка: {}",
     "Installation failed: ": "Установка не удалась: ",
-    "Successfully updated your {}!": "Ваш {} успешно обновлён!"
+    "Successfully updated your {}!": "Ваш {} успешно обновлён!",
+    "Include AUR updates": "Включить обновления AUR",
+    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "Если отключено, помощник AUR (paru/yay) и эффекты KWin будут автоматически пересобраны во избежание поломок."
 }
