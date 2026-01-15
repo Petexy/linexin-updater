@@ -909,13 +909,13 @@ class LinexInUpdaterWidget(Gtk.Box):
         if self.include_aur_updates:
             # We pass the wrapper to paru's --sudo flag
             # Note: paru executes [wrapper] [args], so our wrapper calling 'sudo -A' works
-            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --sudo '{self.sudo_wrapper}' && flatpak update --assumeyes"
+            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --overwrite '*' --sudo '{self.sudo_wrapper}' && flatpak update --assumeyes"
         else:
             aur_helper_rebuild = self.get_aur_helper_rebuild_command()
             kwin_effects_packages = self.get_kwin_effects_rebuild_command()
             
             # System update uses our wrapper directly
-            privileged_cmds = f"{priv_cmd} pacman -Syu --noconfirm"
+            privileged_cmds = f"{priv_cmd} pacman -Syu --noconfirm --overwrite '*'"
             if aur_helper_rebuild:
                 privileged_cmds += f" && echo 'Reinstalling paru to relink against new libalpm...' && {priv_cmd} pacman -S --noconfirm paru"
             
