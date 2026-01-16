@@ -22,5 +22,10 @@ translations = {
     "Installation failed: ": "इंस्टॉलेशन असफल रहा: ",
     "Successfully updated your {}!": "आपका {} सफलतापूर्वक अपडेट हो गया!",
     "Include AUR updates": "AUR अपडेट शामिल करें",
-    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "अक्षम होने पर, किसी भी त्रुटि को रोकने के लिए AUR हेल्पर (paru/yay) और KWin इफेक्ट्स अपने आप रीबिल्ड (rebuild) हो जाएंगे।"
+    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "अक्षम होने पर, किसी भी त्रुटि को रोकने के लिए AUR हेल्पर (paru/yay) और KWin इफेक्ट्स अपने आप रीबिल्ड (rebuild) हो जाएंगे।",
+    "Authentication Required": "प्रमाणीकरण आवश्यक है",
+    "Please enter your password to proceed with the system update.": "सिस्टम अपडेट जारी रखने के लिए कृपया अपना पासवर्ड दर्ज करें।",
+    "Cancel": "रद्द करें",
+    "Unlock": "अनलॉक करें",
+    "Password": "पासवर्ड"
 }

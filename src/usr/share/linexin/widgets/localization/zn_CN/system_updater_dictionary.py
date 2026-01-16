@@ -22,5 +22,10 @@ translations = {
     "Installation failed: ": "安装失败: ",
     "Successfully updated your {}!": "您的 {} 已成功更新！",
     "Include AUR updates": "包含 AUR 更新",
-    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "禁用时，AUR 助手 (paru/yay) 和 KWin 特效将自动重新构建，以防止损坏。"
+    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "禁用时，AUR 助手 (paru/yay) 和 KWin 特效将自动重新构建，以防止损坏。",
+    "Authentication Required": "需要身份验证",
+    "Please enter your password to proceed with the system update.": "请输入您的密码以继续系统更新。",
+    "Cancel": "取消",
+    "Unlock": "解锁",
+    "Password": "密码"
 }

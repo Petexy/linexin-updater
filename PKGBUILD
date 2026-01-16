@@ -1,7 +1,7 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=linexin-updater
-pkgver=3.5.4.r
+pkgver=3.5.5.r
 pkgrel=1
 _currentdate=$(date +"%Y-%m-%d%H-%M-%S")
 pkgdesc='An updater for Arch-based distros. One button updates system packages and Flatpaks at once'

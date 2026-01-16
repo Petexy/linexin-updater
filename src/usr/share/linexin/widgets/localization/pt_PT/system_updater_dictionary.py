@@ -22,5 +22,10 @@ translations = {
     "Installation failed: ": "A instalação falhou: ",
     "Successfully updated your {}!": "Seu {} foi atualizado com sucesso!",
     "Include AUR updates": "Incluir atualizações do AUR",
-    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "Quando desativado, o assistente do AUR (paru/yay) e os efeitos do KWin serão reconstruídos automaticamente para evitar quebras."
+    "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "Quando desativado, o assistente do AUR (paru/yay) e os efeitos do KWin serão reconstruídos automaticamente para evitar quebras.",
+    "Authentication Required": "Autenticação necessária",
+    "Please enter your password to proceed with the system update.": "Introduza a sua palavra-passe para prosseguir com a atualização do sistema.",
+    "Cancel": "Cancelar",
+    "Unlock": "Desbloquear",
+    "Password": "Palavra-passe"
 }
