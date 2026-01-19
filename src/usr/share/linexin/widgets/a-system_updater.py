@@ -8,6 +8,8 @@ import locale
 import os
 import stat
 import distro
+import tempfile
+import atexit
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -16,48 +18,48 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gtk, Adw, GLib, Gst
 
 
-# --- Localization Setup ---
+                            
 APP_NAME = "linexin-updater"
 LOCALE_DIR = os.path.abspath("/usr/share/locale")
 
-# Set up the locale environment
+                               
 locale.setlocale(locale.LC_ALL, '')
 locale.bindtextdomain(APP_NAME, LOCALE_DIR)
 gettext.bindtextdomain(APP_NAME, LOCALE_DIR)
 gettext.textdomain(APP_NAME)
 _ = gettext.gettext
-# --------------------------
+                            
 
 
 class SoundPlayer:
     def __init__(self):
-        # Initialize GStreamer
+                              
         Gst.init(None)
         
-        # Create a playbin pipeline
+                                   
         self.player = Gst.ElementFactory.make("playbin", "player")
         
-        # Connect to the bus to handle end-of-stream messages
+                                                             
         bus = self.player.get_bus()
         bus.add_signal_watch()
         bus.connect("message", self.on_bus_message)
         
     def play_sound(self, file_path):
-        # Reset pipeline to NULL state first
+                                            
         self.player.set_state(Gst.State.NULL)
         
-        # Set the URI for the sound file
+                                        
         self.player.set_property("uri", f"file://{file_path}")
         
-        # Start playing
+                       
         self.player.set_state(Gst.State.PLAYING)
         
     def on_bus_message(self, bus, message):
         if message.type == Gst.MessageType.EOS:
-            # End of stream - reset to NULL state
+                                                 
             self.player.set_state(Gst.State.NULL)
         elif message.type == Gst.MessageType.ERROR:
-            # Handle errors
+                           
             err, debug = message.parse_error()
             print(f"Error: {err}, Debug: {debug}")
             self.player.set_state(Gst.State.NULL)
@@ -71,71 +73,76 @@ class LinexInUpdaterWidget(Gtk.Box):
     def __init__(self, hide_sidebar=False, window=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         
-        # Sound initialization
+                              
         self.sound_player = SoundPlayer()
 
-        # Required: Widget display name
+                                       
         self.widgetname = "System Updater"
         
-        # Optional: Widget icon
+                               
         self.widgeticon = "/usr/share/icons/github.petexy.linexinupdater.svg"
         
-        # Widget content
+                        
         self.set_margin_top(12)
         self.set_margin_bottom(50)
         self.set_margin_start(12)
         self.set_margin_end(12)
         
-        # Initialize state variables
+                                    
         self.progress_visible = False
         self.progress_data = ""
         self.install_started = False
         self.error_message = None
         self.turn_off_after_install = False
-        self.include_aur_updates = True  # AUR updates enabled by default
+        self.include_aur_updates = True                                  
         self.available_updates = []
         self.flatpak_updates = []
         self.aur_updates = []
         self.checking_updates = False
         
-        # --- Password and Retry Logic State ---
+                                                
         self.user_password = None
         self.retry_in_progress = False
         self.detected_alpm_error = False
         self.last_command = ""
         
-        self.askpass_script = "/tmp/linexin-askpass.sh"
-        self.sudo_wrapper = "/tmp/linexin-sudo.sh"
-        # ------------------------------
+        self._askpass_tf = tempfile.NamedTemporaryFile(delete=False, prefix="linexin-askpass-")
+        self.askpass_script = self._askpass_tf.name
+        self._askpass_tf.close()
+        self._sudo_tf = tempfile.NamedTemporaryFile(delete=False, prefix="linexin-sudo-")
+        self.sudo_wrapper = self._sudo_tf.name
+        self._sudo_tf.close()
+        atexit.register(self.cleanup_temp_files)
+                                        
         
-        # Create main content stack
+                                   
         self.content_stack = Gtk.Stack()
         self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_UP_DOWN)
         self.content_stack.set_hexpand(True)
         self.content_stack.set_vexpand(True)
         self.append(self.content_stack)
         
-        # Setup different views
+                               
         self.setup_updates_view()
         self.setup_info_view()
         self.setup_progress_view()
         self.setup_single_widget_view()
         
-        # Controls section
+                          
         self.setup_controls()
         
-        # Set initial view and check for updates
+                                                
         self.updates_checked = False
         self.window = window
         self.hide_sidebar = hide_sidebar
 
         if not self.hide_sidebar:
             self.content_stack.set_visible_child_name("updates_view")
-            # Check for updates only in sidebar mode
+                                                    
             self.check_for_updates()
             self.updates_checked = True
         else:
-            # Single widget mode - don't check updates initially
+                                                                
             self.content_stack.set_visible_child_name("welcome_view")
             GLib.idle_add(self.resize_window_deferred)
             self.btn_install.set_sensitive(True)
@@ -143,16 +150,16 @@ class LinexInUpdaterWidget(Gtk.Box):
     def get_header_bar_widget(self):
         """Return a header bar widget with toggle button for single widget mode"""
         if not self.hide_sidebar:
-            return None  # Only show in single widget mode
+            return None                                   
         
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         
-        # Toggle button to switch between welcome and updates view
+                                                                  
         self.toggle_button = Gtk.Button()
         self.toggle_button.set_tooltip_text(_("Toggle updates view"))
         self.toggle_button.connect("clicked", self.on_toggle_view_clicked)
         
-        # Update button appearance based on current view
+                                                        
         self.update_toggle_button()
         
         header_box.append(self.toggle_button)
@@ -166,19 +173,19 @@ class LinexInUpdaterWidget(Gtk.Box):
         current_view = self.content_stack.get_visible_child_name()
         
         if current_view == "welcome_view":
-            # Show "Show Updates" button
+                                        
             self.toggle_button.set_label(_("Show Updates"))
             icon = Gtk.Image.new_from_icon_name("view-list")
             self.toggle_button.set_child(icon)
             self.toggle_button.set_visible(True)
         elif current_view == "updates_view":
-            # Show "Hide Updates" button  
+                                          
             self.toggle_button.set_label(_("Hide Updates"))
             icon = Gtk.Image.new_from_icon_name("go-previous")
             self.toggle_button.set_child(icon)
             self.toggle_button.set_visible(True)
         else:
-            # Hide button for other views
+                                         
             self.toggle_button.set_visible(False)
 
     def on_toggle_view_clicked(self, button):
@@ -186,17 +193,17 @@ class LinexInUpdaterWidget(Gtk.Box):
         current_view = self.content_stack.get_visible_child_name()
         
         if current_view == "welcome_view":
-            # Switch to updates view
+                                    
             self.content_stack.set_visible_child_name("updates_view")
-            # Check for updates only when first switching to updates view
+                                                                         
             if not self.updates_checked:
                 self.check_for_updates()
                 self.updates_checked = True
         elif current_view == "updates_view":
-            # Switch back to welcome view
+                                         
             self.content_stack.set_visible_child_name("welcome_view")
         
-        # Update button appearance
+                                  
         self.update_toggle_button()     
             
     def resize_window_deferred(self):
@@ -216,7 +223,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         welcome_box.set_valign(Gtk.Align.CENTER)
         welcome_box.set_halign(Gtk.Align.CENTER)
         
-        # Welcome icon
+                      
         welcome_image = Gtk.Image()
         if os.path.exists("/usr/share/icons/sync.svg"):
             welcome_image.set_from_file("/usr/share/icons/sync.svg")
@@ -225,12 +232,12 @@ class LinexInUpdaterWidget(Gtk.Box):
         welcome_image.set_pixel_size(64)
         welcome_box.append(welcome_image)
         
-        # Title
+               
         title = Gtk.Label(label=_("System Updates"))
         title.add_css_class("title-2")
         welcome_box.append(title)
         
-        # Description
+                     
         description = Gtk.Label(label=_("Press the button below to install all of the updates"))
         description.add_css_class("dim-label")
         welcome_box.append(description)
@@ -243,11 +250,11 @@ class LinexInUpdaterWidget(Gtk.Box):
         updates_box.set_margin_start(30)
         updates_box.set_margin_end(30)
 
-        # Header
+                
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         header_box.set_margin_bottom(10)
         
-        # Refresh button
+                        
         self.refresh_button = Gtk.Button()
         refresh_icon = Gtk.Image.new_from_icon_name("view-refresh")
         refresh_icon.set_margin_start(7)
@@ -257,7 +264,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.refresh_button.connect("clicked", self.on_refresh_clicked)
         header_box.append(self.refresh_button)
         
-        # Title and status
+                          
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         title_box.set_hexpand(True)
         
@@ -274,7 +281,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         header_box.append(title_box)
         updates_box.append(header_box)
         
-        # Scrollable updates list
+                                 
         self.updates_scrolled = Gtk.ScrolledWindow()
         self.updates_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.updates_scrolled.set_min_content_height(50)
@@ -295,7 +302,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         info_box.set_valign(Gtk.Align.CENTER)
         info_box.set_halign(Gtk.Align.CENTER)
         
-        # Status images
+                       
         self.fail_image = Gtk.Image()
         if os.path.exists("/usr/share/icons/fault.svg"):
             self.fail_image.set_from_file("/usr/share/icons/fault.svg")
@@ -315,7 +322,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         info_box.append(self.fail_image)
         info_box.append(self.success_image)
         
-        # Status label
+                      
         self.info_label = Gtk.Label()
         self.info_label.set_wrap(True)
         self.info_label.set_justify(Gtk.Justification.CENTER)
@@ -349,18 +356,18 @@ class LinexInUpdaterWidget(Gtk.Box):
         """Setup control buttons and options"""
         controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         
-        # Options container
+                           
         options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         options_box.set_halign(Gtk.Align.FILL)
         options_box.set_margin_bottom(20)
-        options_box.set_margin_start(30)  # Match updates_box margins
-        options_box.set_margin_end(30)    # Match updates_box margins
+        options_box.set_margin_start(30)                             
+        options_box.set_margin_end(30)                               
         
-        # Create ListBox for ActionRows (needed for activatable behavior)
+                                                                         
         options_listbox = Gtk.ListBox()
         options_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         
-        # Add CSS to make it transparent and clean
+                                                  
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
             listbox {
@@ -377,13 +384,13 @@ class LinexInUpdaterWidget(Gtk.Box):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
         
-        # AUR updates option with info
+                                      
         aur_row = Adw.ActionRow()
         aur_row.set_title(_("Include AUR updates"))
         aur_row.set_subtitle(_("When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage"))
         
         self.aur_switch = Gtk.Switch()
-        self.aur_switch.set_active(True)  # Checked by default
+        self.aur_switch.set_active(True)                      
         self.aur_switch.set_valign(Gtk.Align.CENTER)
         self.aur_switch.connect("notify::active", self.on_aur_toggled)
         aur_row.add_suffix(self.aur_switch)
@@ -391,7 +398,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         options_listbox.append(aur_row)
         
-        # Shutdown option
+                         
         shutdown_row = Adw.ActionRow()
         shutdown_row.set_title(_("Turn off PC after update"))
         
@@ -407,7 +414,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         controls_box.append(options_box)
         
-        # Action buttons
+                        
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         button_box.set_halign(Gtk.Align.CENTER)
         
@@ -415,7 +422,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.btn_install.add_css_class("suggested-action")
         self.btn_install.add_css_class("buttons_all")
         self.btn_install.connect("clicked", self.on_install_clicked)
-        self.btn_install.set_sensitive(False)  # Initially disabled
+        self.btn_install.set_sensitive(False)                      
         
         self.btn_toggle_progress = Gtk.Button(label=_("Show Progress"))
         self.btn_toggle_progress.set_sensitive(False)
@@ -447,7 +454,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         
-        # Package info
+                      
         info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         info_box.set_hexpand(True)
         
@@ -469,7 +476,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         box.append(info_box)
         
-        # Update icon
+                     
         update_icon = Gtk.Image.new_from_icon_name("software-update-available")
         update_icon.set_pixel_size(16)
         box.append(update_icon)
@@ -480,26 +487,26 @@ class LinexInUpdaterWidget(Gtk.Box):
     def on_refresh_clicked(self, button):
         """Handle refresh button click"""
         if not self.checking_updates and not self.install_started:
-            self.updates_checked = False  # Reset flag to allow fresh check
+            self.updates_checked = False                                   
             self.check_for_updates()
-            self.updates_checked = True   # Set flag after check
+            self.updates_checked = True                         
 
     def on_aur_toggled(self, switch, param):
         """Handle AUR toggle switch"""
         self.include_aur_updates = switch.get_active()
-        # Update the displayed updates list
+                                           
         self.update_displayed_updates()
     
     def update_displayed_updates(self):
         """Update the displayed updates list based on AUR toggle"""
-        # Clear existing updates
+                                
         child = self.updates_listbox.get_first_child()
         while child:
             next_child = child.get_next_sibling()
             self.updates_listbox.remove(child)
             child = next_child
         
-        # Calculate total updates based on AUR setting
+                                                      
         if self.include_aur_updates:
             total_updates = len(self.available_updates) + len(self.flatpak_updates) + len(self.aur_updates)
         else:
@@ -509,7 +516,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.updates_subtitle.set_text(_("System is up to date"))
             self.btn_install.set_sensitive(False)
             
-            # Show "no updates" row
+                                   
             row = Gtk.ListBoxRow()
             row.set_selectable(False)
             
@@ -540,7 +547,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             
             self.btn_install.set_sensitive(True)
             
-            # Add pacman updates
+                                
             for update in self.available_updates:
                 row = self.create_update_row(
                     update['name'], 
@@ -550,7 +557,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                 )
                 self.updates_listbox.append(row)
             
-            # Add AUR updates only if enabled
+                                             
             if self.include_aur_updates:
                 for update in self.aur_updates:
                     row = self.create_update_row(
@@ -561,7 +568,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                     )
                     self.updates_listbox.append(row)
 
-            # Add flatpak updates
+                                 
             for update in self.flatpak_updates:
                 row = self.create_update_row(
                     update['name'], 
@@ -581,7 +588,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.btn_install.set_sensitive(False)
         self.updates_subtitle.set_text(_("Checking for updates..."))
         
-        # Clear existing updates
+                                
         child = self.updates_listbox.get_first_child()
         while child:
             next_child = child.get_next_sibling()
@@ -594,7 +601,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                 self.aur_updates = []
                 self.flatpak_updates = []
                 
-                # Check pacman updates
+                                      
                 try:
                     result = subprocess.run(['checkupdates'], 
                                           capture_output=True, text=True, timeout=30, env={'LC_ALL': 'C'})
@@ -605,7 +612,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                                 if len(parts) >= 4:
                                     package = parts[0]
                                     current_version = parts[1]
-                                    arrow = parts[2]  # Should be '->'
+                                    arrow = parts[2]                  
                                     new_version = parts[3]
                                     repo = parts[4] if len(parts) > 4 else ""
                                     
@@ -617,7 +624,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                                         'type': 'pacman'
                                     })
                 except (subprocess.SubprocessError, FileNotFoundError):
-                    pass  # checkupdates not available or failed
+                    pass                                        
                 
                 try:
                     result = subprocess.run(['paru', '-Qu'], 
@@ -633,8 +640,8 @@ class LinexInUpdaterWidget(Gtk.Box):
                                     new_version = parts[3]
                                     repo = parts[4] if len(parts) > 4 else ""
                                     
-                                    # Only add if it's from AUR (not official repos)
-                                    # Check if package is already in available_updates (official repos)
+                                                                                    
+                                                                                                       
                                     is_duplicate = any(pkg['name'] == package for pkg in self.available_updates)
                                     
                                     if not is_duplicate:
@@ -646,9 +653,9 @@ class LinexInUpdaterWidget(Gtk.Box):
                                             'type': 'AUR'
                                         })
                 except (subprocess.SubprocessError, FileNotFoundError):
-                    pass  # checkupdates not available or failed
+                    pass                                        
 
-                # Check flatpak updates - ROBUST & PER-REMOTE METHOD
+                                                                    
                 try:
                     all_flatpak_updates = []
                     seen_ids = set()
@@ -656,7 +663,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                     def get_updates_for_scope(scope_flag, scope_name):
                         updates = []
                         try:
-                            # 1. Get list of remotes for this scope
+                                                                   
                             remotes_cmd = ['flatpak', 'remotes', scope_flag, '--columns=name']
                             res = subprocess.run(remotes_cmd, capture_output=True, text=True, timeout=10, env={'LC_ALL': 'C'})
                             
@@ -665,12 +672,12 @@ class LinexInUpdaterWidget(Gtk.Box):
 
                             remotes = [r.strip() for r in res.stdout.strip().split('\n') if r.strip()]
 
-                            # 2. Check updates for each remote individually
+                                                                           
                             for remote in remotes:
                                 try:
-                                    # Check updates specifically for this remote
+                                                                                
                                     cmd = ['flatpak', 'remote-ls', scope_flag, '--updates', '--columns=ref,version', remote]
-                                    # Shorter timeout per remote to fail fast on broken ones
+                                                                                            
                                     r_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15, env={'LC_ALL': 'C'})
                                     
                                     if r_res.returncode == 0 and r_res.stdout.strip():
@@ -680,7 +687,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                                                 ref = parts[0]
                                                 version = parts[1] if len(parts) > 1 else ""
                                                 
-                                                # Parse ref: type/id/arch/branch
+                                                                                
                                                 ref_parts = ref.split('/')
                                                 if len(ref_parts) >= 4:
                                                     app_id = ref_parts[1]
@@ -695,20 +702,20 @@ class LinexInUpdaterWidget(Gtk.Box):
                                                         'type': 'flatpak'
                                                     })
                                 except Exception:
-                                    continue # Skip broken remote silently
+                                    continue                              
                                     
                         except Exception:
                             pass
                         return updates
 
-                    # Check System
+                                  
                     sys_ups = get_updates_for_scope('--system', 'system')
                     for up in sys_ups:
                         if up['app_id'] not in seen_ids:
                             all_flatpak_updates.append(up)
                             seen_ids.add(up['app_id'])
 
-                    # Check User
+                                
                     user_ups = get_updates_for_scope('--user', 'user')
                     for up in user_ups:
                         if up['app_id'] not in seen_ids:
@@ -718,7 +725,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                     self.flatpak_updates = all_flatpak_updates
                                 
                 except Exception as e:
-                    # Log error but don't fail the whole check
+                                                              
                     print(f"Flatpak check error: {e}")
                 
             except Exception as e:
@@ -734,7 +741,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.checking_updates = False
         self.refresh_button.set_sensitive(True)
         
-        # Use the common method to display updates
+                                                  
         self.update_displayed_updates()
         
         return False
@@ -746,7 +753,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.updates_subtitle.set_text(_("Error checking updates"))
         self.btn_install.set_sensitive(False)
         
-        # Show error row
+                        
         row = Gtk.ListBoxRow()
         row.set_selectable(False)
         
@@ -771,24 +778,24 @@ class LinexInUpdaterWidget(Gtk.Box):
     def get_aur_helper_rebuild_command(self):
         """Check if AUR helper needs to be rebuilt (returns True/False)"""
         try:
-            # Check if paru is installed
+                                        
             result = subprocess.run(['pacman', '-Q', 'paru'], capture_output=True, text=True)
             if result.returncode == 0:
                 return True
             
-            # Check if yay is installed
+                                       
             result = subprocess.run(['pacman', '-Q', 'yay'], capture_output=True, text=True)
             if result.returncode == 0:
                 return True
         except:
             pass
         
-        # No AUR helper found or error occurred
+                                               
         return False
     
     def get_kwin_effects_rebuild_command(self):
         """Check if kwin is being updated and return package names that need rebuilding"""
-        # Check if kwin is in the updates list
+                                              
         kwin_update = False
         for update in self.available_updates:
             if 'kwin' in update.get('name', '').lower():
@@ -798,7 +805,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         if not kwin_update:
             return ""
         
-        # Check if the kwin effect packages are installed
+                                                         
         rebuild_packages = []
         
         try:
@@ -818,7 +825,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         if not rebuild_packages:
             return ""
         
-        # Return space-separated package names
+                                              
         return ' '.join(rebuild_packages)
 
     
@@ -828,12 +835,12 @@ class LinexInUpdaterWidget(Gtk.Box):
     
     def prompt_for_password(self):
         """Prompt user for sudo password using Adw.MessageDialog"""
-        # Use root widget or fallback to self
+                                             
         root = self.get_root()
         if not root:
-            # If the widget isn't fully realized in the window yet,
-            # we might need to rely on the parent window passed in __init__ if available,
-            # or skip transient_for (which is okay for AdwDialog)
+                                                                   
+                                                                                         
+                                                                 
             root = self.window
             
         dialog = Adw.MessageDialog(
@@ -846,12 +853,12 @@ class LinexInUpdaterWidget(Gtk.Box):
         dialog.add_response("unlock", _("Unlock"))
         dialog.set_response_appearance("unlock", Adw.ResponseAppearance.SUGGESTED)
         
-        # Create input box
+                          
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         
         entry = Gtk.PasswordEntry()
         entry.set_property("placeholder-text", _("Password"))
-        # Removed set_activates_default as it's not available in standard GTK4 Python bindings for PasswordEntry
+                                                                                                                
         box.append(entry)
         
         dialog.set_extra_child(box)
@@ -861,13 +868,13 @@ class LinexInUpdaterWidget(Gtk.Box):
                 pwd = entry.get_text()
                 if pwd:
                     self.user_password = pwd
-                    # Restart install logic
+                                           
                     self.on_install_clicked(None)
             dialog.close()
             
         dialog.connect("response", on_response)
         
-        # Manually trigger response when Enter key is pressed
+                                                             
         def on_entry_activate(widget):
             dialog.response("unlock")
             
@@ -875,15 +882,24 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         dialog.present()
 
+    def cleanup_temp_files(self):
+        try:
+            if os.path.exists(self.askpass_script):
+                os.remove(self.askpass_script)
+            if os.path.exists(self.sudo_wrapper):
+                os.remove(self.sudo_wrapper)
+        except:
+            pass
+
     def setup_sudo_env(self):
         """Create helper scripts for non-interactive sudo"""
-        # 1. Askpass Helper
+                           
         with open(self.askpass_script, "w") as f:
             f.write("#!/bin/sh\necho \"$LINEXIN_SUDO_PW\"\n")
         os.chmod(self.askpass_script, 0o700)
         
-        # 2. Sudo Wrapper (to force -A)
-        # This wrapper forces sudo to use the askpass script we created
+                                       
+                                                                       
         with open(self.sudo_wrapper, "w") as f:
             f.write(f"#!/bin/sh\nexport SUDO_ASKPASS='{self.askpass_script}'\nexec sudo -A \"$@\"\n")
         os.chmod(self.sudo_wrapper, 0o700)
@@ -894,11 +910,11 @@ class LinexInUpdaterWidget(Gtk.Box):
             return False
             
         try:
-            # First invalidate any existing session to ensure we test the current password
+                                                                                          
             subprocess.run(['sudo', '-k'], check=False)
             
-            # Now validate using -S which reads the password from stdin and fails immediately on error
-            # We don't use the wrapper here because we want to fail fast (1 try) without retries
+                                                                                                      
+                                                                                                
             result = subprocess.run(
                 ['sudo', '-S', '-v'],
                 input=(self.user_password + '\n'),
@@ -910,7 +926,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             if result.returncode == 0:
                 return True
             else:
-                # Don't print the actual password, but print the error
+                                                                      
                 print(f"Password validation failed. Return code: {result.returncode}")
                 return False
         except Exception as e:
@@ -919,19 +935,19 @@ class LinexInUpdaterWidget(Gtk.Box):
 
     def on_install_clicked(self, button):
         """Handle install button click"""
-        # --- CHECK PASSWORD FIRST ---
+                                      
         if not self.user_password:
             self.prompt_for_password()
             return
         
-        # Setup helpers immediately
+                                   
         self.setup_sudo_env()
         
-        # --- VALIDATE PASSWORD ---
+                                   
         if not self.validate_password():
             self.user_password = None
             
-            # Show error dialog
+                               
             root = self.get_root() or self.window
             dialog = Adw.MessageDialog(
                 heading=_("Authentication Failed"),
@@ -948,20 +964,20 @@ class LinexInUpdaterWidget(Gtk.Box):
         product_name = distro.name()
         self.btn_retry.set_visible(False)
         
-        # Define the privileged command prefix (replaces 'run0')
-        # We use our wrapper which forces 'sudo -A' reading env var
+                                                                
+                                                                   
         priv_cmd = self.sudo_wrapper
         
-        # Choose command based on AUR toggle
+                                            
         if self.include_aur_updates:
-            # We pass the wrapper to paru's --sudo flag
-            # Note: paru executes [wrapper] [args], so our wrapper calling 'sudo -A' works
+                                                       
+                                                                                          
             command = f"echo Updating {product_name}... && paru -Syu --noconfirm --overwrite '*' --sudo '{self.sudo_wrapper}' && flatpak update --assumeyes"
         else:
             aur_helper_rebuild = self.get_aur_helper_rebuild_command()
             kwin_effects_packages = self.get_kwin_effects_rebuild_command()
             
-            # System update uses our wrapper directly
+                                                     
             privileged_cmds = f"{priv_cmd} pacman -Syu --noconfirm --overwrite '*'"
             if aur_helper_rebuild:
                 privileged_cmds += f" && echo 'Reinstalling paru to relink against new libalpm...' && {priv_cmd} pacman -S --noconfirm paru"
@@ -984,7 +1000,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.current_product = product_name
         self.error_message = None
         
-        # Reset images
+                      
         self.fail_image.set_visible(False)
         self.success_image.set_visible(False)
         
@@ -996,7 +1012,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.btn_toggle_progress.set_label(_("Show Progress"))
         self.output_buffer.set_text("")
         
-        # Store command and reset retry flags
+                                             
         self.last_command = command
         self.retry_in_progress = False
         self.detected_alpm_error = False
@@ -1021,7 +1037,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         if self.progress_visible:
             end_iter = self.output_buffer.get_end_iter()
             self.output_buffer.insert(end_iter, text)
-            # Create a mark at the end to ensure scrolling follows
+                                                                  
             mark = self.output_buffer.create_mark(None, end_iter, False)
             self.output_textview.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
         return False
@@ -1030,7 +1046,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         """Execute shell command in a separate thread"""
         def stream_output():
             try:
-                # Inject password into environment for our askpass helper
+                                                                         
                 env = os.environ.copy()
                 if self.user_password:
                     env['LINEXIN_SUDO_PW'] = self.user_password
@@ -1042,12 +1058,12 @@ class LinexInUpdaterWidget(Gtk.Box):
                     text=True,
                     encoding='utf-8',
                     errors='replace',
-                    env=env  # Pass the env with password
+                    env=env                              
                 )
                 
                 for line in iter(process.stdout.readline, ''):
                     if line:
-                        # Check for the specific error that requires a paru rebuild
+                                                                                   
                         if "error while loading shared libraries: libalpm.so" in line:
                             self.detected_alpm_error = True
                         
@@ -1082,28 +1098,28 @@ class LinexInUpdaterWidget(Gtk.Box):
     
     def finish_installation(self):
         """Handle installation completion"""
-        # --- NEW LOGIC START: Manual Repair via AUR ---
+                                                        
         if self.error_message and self.detected_alpm_error and not self.retry_in_progress:
-            # Entering retry mode
+                                 
             self.retry_in_progress = True
-            self.error_message = None # Clear error to prevent immediate fail
-            self.detected_alpm_error = False # Reset detection
+            self.error_message = None                                        
+            self.detected_alpm_error = False                  
             
-            # Notify user in the log
+                                    
             repair_msg = f"\n\n{_('--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---')}\n"
             self.progress_data += repair_msg
             self.append_to_log(repair_msg)
             
-            # Helper for privileged commands
+                                            
             priv = self.sudo_wrapper
             
-            # Construct the repair command:
-            # 1. Clean/Create temp dir
-            # 2. wget source snapshot from AUR (paru, NOT paru-bin)
-            # 3. untar
-            # 4. makepkg (BUILD ONLY, NO -i)
-            # 5. REMOVE broken paru variants (Fixes conflict) - using wrapper
-            # 6. INSTALL new paru (Fixes sudo auth) AND Overwrite files - using wrapper
+                                           
+                                      
+                                                                   
+                      
+                                            
+                                                                             
+                                                                                       
             repair_cmd = (
                 "rm -rf /tmp/paru_repair && "
                 "mkdir -p /tmp/paru_repair && "
@@ -1119,17 +1135,17 @@ class LinexInUpdaterWidget(Gtk.Box):
                 f"{priv} sh -c 'pacman -Rdd --noconfirm paru paru-bin paru-debug paru-bin-debug 2>/dev/null || true; pacman -U --noconfirm --overwrite \"*\" *.pkg.tar.zst'"
             )
             
-            # Chain: Repair -> Retry Original Command
+                                                     
             retry_cmd = f"{repair_cmd} && echo '--- Repair complete, retrying system update... ---' && {self.last_command}"
             
-            # Restart the shell thread with the new command chain
+                                                                 
             self.run_shell_command(retry_cmd)
             
-            # Return False to stop this function from resetting the UI
+                                                                      
             return False
-        # --- NEW LOGIC END ---
+                               
 
-        # Important: Clear cached sudo credentials now that we are done
+                                                                       
         try:
             subprocess.run(['sudo', '-k'], check=False)
         except Exception:
@@ -1155,7 +1171,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.success_image.set_visible(True)
             self.btn_retry.remove_css_class("suggested-action")
             
-            # Refresh the updates list after successful installation
+                                                                    
             GLib.timeout_add_seconds(2, self.return_to_updates_and_refresh)
             
             if self.turn_off_after_install:
