@@ -27,5 +27,21 @@ translations = {
     "Please enter your password to proceed with the system update.": "Por favor, digite sua senha para prosseguir com a atualização do sistema.",
     "Cancel": "Cancelar",
     "Unlock": "Desbloquear",
-    "Password": "Senha"
+    "Password": "Senha",
+
+    # Missing translations added automatically
+    "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---": "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---",
+    "Authentication Failed": "Authentication Failed",
+    "Error checking updates": "Error checking updates",
+    "Failed to check for updates": "Failed to check for updates",
+    "Hide Updates": "Hide Updates",
+    "OK": "OK",
+    "Press the button below to install all of the updates": "Press the button below to install all of the updates",
+    "Refresh updates": "Refresh updates",
+    "Show Updates": "Show Updates",
+    "The password you entered is incorrect. Please try again.": "The password you entered is incorrect. Please try again.",
+    "Toggle updates view": "Toggle updates view",
+    "installed": "installed",
+    "new version": "new version",
+    "{} updates available": "{} updates available",
 }

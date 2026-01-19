@@ -888,6 +888,35 @@ class LinexInUpdaterWidget(Gtk.Box):
             f.write(f"#!/bin/sh\nexport SUDO_ASKPASS='{self.askpass_script}'\nexec sudo -A \"$@\"\n")
         os.chmod(self.sudo_wrapper, 0o700)
 
+    def validate_password(self):
+        """Validate the sudo password using sudo -S"""
+        if not self.user_password:
+            return False
+            
+        try:
+            # First invalidate any existing session to ensure we test the current password
+            subprocess.run(['sudo', '-k'], check=False)
+            
+            # Now validate using -S which reads the password from stdin and fails immediately on error
+            # We don't use the wrapper here because we want to fail fast (1 try) without retries
+            result = subprocess.run(
+                ['sudo', '-S', '-v'],
+                input=(self.user_password + '\n'),
+                capture_output=True,
+                text=True,
+                env={'LC_ALL': 'C'}
+            )
+            
+            if result.returncode == 0:
+                return True
+            else:
+                # Don't print the actual password, but print the error
+                print(f"Password validation failed. Return code: {result.returncode}")
+                return False
+        except Exception as e:
+            print(f"Validation exception: {e}")
+            return False
+
     def on_install_clicked(self, button):
         """Handle install button click"""
         # --- CHECK PASSWORD FIRST ---
@@ -897,6 +926,24 @@ class LinexInUpdaterWidget(Gtk.Box):
         
         # Setup helpers immediately
         self.setup_sudo_env()
+        
+        # --- VALIDATE PASSWORD ---
+        if not self.validate_password():
+            self.user_password = None
+            
+            # Show error dialog
+            root = self.get_root() or self.window
+            dialog = Adw.MessageDialog(
+                heading=_("Authentication Failed"),
+                body=_("The password you entered is incorrect. Please try again."),
+                transient_for=root
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.set_response_appearance("ok", Adw.ResponseAppearance.DEFAULT)
+            dialog.connect("response", lambda d, r: d.close())
+            dialog.present()
+            
+            return
         
         product_name = distro.name()
         self.btn_retry.set_visible(False)

@@ -22,12 +22,28 @@ translations = {
     "Process exited with code {}": "Proceso terminado con código {}",
     "\nError: {}": "\nError: {}",
     "Installation failed: ": "La instalación falló: ",
-    "Successfully updated your {}!": "¡{} actualizado exitosamente!"
+    "Successfully updated your {}!": "¡{} actualizado exitosamente!",
     "Include AUR updates": "Incluir actualizaciones de AUR",
     "When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage": "Al desactivarlo, el asistente de AUR (paru/yay) y los efectos de KWin se reconstruirán automáticamente para evitar fallos.",
     "Authentication Required": "Se requiere autenticación",
     "Please enter your password to proceed with the system update.": "Introduzca su contraseña para continuar con la actualización del sistema.",
     "Cancel": "Cancelar",
     "Unlock": "Desbloquear",
-    "Password": "Contraseña"
+    "Password": "Contraseña",
+
+    # Missing translations added automatically
+    "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---": "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---",
+    "Authentication Failed": "Authentication Failed",
+    "Error checking updates": "Error checking updates",
+    "Failed to check for updates": "Failed to check for updates",
+    "Hide Updates": "Hide Updates",
+    "OK": "OK",
+    "Press the button below to install all of the updates": "Press the button below to install all of the updates",
+    "Refresh updates": "Refresh updates",
+    "Show Updates": "Show Updates",
+    "The password you entered is incorrect. Please try again.": "The password you entered is incorrect. Please try again.",
+    "Toggle updates view": "Toggle updates view",
+    "installed": "installed",
+    "new version": "new version",
+    "{} updates available": "{} updates available",
 }
