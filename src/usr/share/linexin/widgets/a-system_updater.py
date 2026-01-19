@@ -1129,6 +1129,12 @@ class LinexInUpdaterWidget(Gtk.Box):
             return False
         # --- NEW LOGIC END ---
 
+        # Important: Clear cached sudo credentials now that we are done
+        try:
+            subprocess.run(['sudo', '-k'], check=False)
+        except Exception:
+            pass
+
         self.install_started = False
         self.btn_install.set_sensitive(True)
         self.btn_install.set_visible(True)
