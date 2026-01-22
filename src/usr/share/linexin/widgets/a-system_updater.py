@@ -237,7 +237,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         title.add_css_class("title-2")
         welcome_box.append(title)
         
-                     
+                      
         description = Gtk.Label(label=_("Press the button below to install all of the updates"))
         description.add_css_class("dim-label")
         welcome_box.append(description)
@@ -994,6 +994,8 @@ class LinexInUpdaterWidget(Gtk.Box):
         """Start the installation process"""
         self.install_started = True
         self.btn_install.set_sensitive(False)
+        self.aur_switch.set_sensitive(False)
+        self.shutdown_switch.set_sensitive(False)
         self.btn_install.set_visible(False)
         self.btn_toggle_progress.set_sensitive(True)
         self.btn_toggle_progress.set_visible(True)
@@ -1144,7 +1146,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                                                                       
             return False
                                
-
+ 
                                                                        
         try:
             subprocess.run(['sudo', '-k'], check=False)
@@ -1153,6 +1155,8 @@ class LinexInUpdaterWidget(Gtk.Box):
 
         self.install_started = False
         self.btn_install.set_sensitive(True)
+        self.aur_switch.set_sensitive(True)
+        self.shutdown_switch.set_sensitive(True)
         self.btn_install.set_visible(True)
         self.btn_toggle_progress.set_sensitive(True)
         
