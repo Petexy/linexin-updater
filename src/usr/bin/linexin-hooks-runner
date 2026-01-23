@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Checks if the source branding file exists
+BRANDING_FILE="/usr/share/linexin-upgrade-tool/os-release"
+
+Os_release() {
+    local file=/usr/lib/os-release
+    local quote='"'
+
+    if [ ! -f "$BRANDING_FILE" ]; then
+        echo "Error: Branding file not found at $BRANDING_FILE"
+        exit 1
+    fi
+
+    # Source the branding file to get the new variables
+    # We use a subshell or local scope to avoid polluting global state if possible,
+    # but here we just need the values.
+    # We prefix them to avoid collisions with the script's internal vars if any.
+    
+    # Read the file and process known keys
+    # We can just source it.
+    source "$BRANDING_FILE"
+
+    # Now we use the variables that were just sourced (NAME, ID, etc.)
+    # Note: Variable names from os-release are uppercase.
+    
+    # Use sed to replace existing values with the ones from the branding file
+    # We only update fields if they were present in the sourced file.
+    
+    [ -n "$NAME" ] && sed -i "s|^NAME=.*|NAME=${quote}${NAME}${quote}|" $file
+    [ -n "$PRETTY_NAME" ] && sed -i "s|^PRETTY_NAME=.*|PRETTY_NAME=${quote}${PRETTY_NAME}${quote}|" $file
+    [ -n "$ID" ] && sed -i "s|^ID=.*|ID=${quote}${ID}${quote}|" $file
+    [ -n "$ID_LIKE" ] && sed -i "s|^ID_LIKE=.*|ID_LIKE=${quote}${ID_LIKE}${quote}|" $file
+    [ -n "$BUILD_ID" ] && sed -i "s|^BUILD_ID=.*|BUILD_ID=${quote}${BUILD_ID}${quote}|" $file
+    [ -n "$VERSION_ID" ] && sed -i "s|^VERSION_ID=.*|VERSION_ID=${quote}${VERSION_ID}${quote}|" $file
+    [ -n "$ANSI_COLOR" ] && sed -i "s|^ANSI_COLOR=.*|ANSI_COLOR=${quote}${ANSI_COLOR}${quote}|" $file
+    [ -n "$HOME_URL" ] && sed -i "s|^HOME_URL=.*|HOME_URL=${quote}${HOME_URL}${quote}|" $file
+    [ -n "$DOCUMENTATION_URL" ] && sed -i "s|^DOCUMENTATION_URL=.*|DOCUMENTATION_URL=${quote}${DOCUMENTATION_URL}${quote}|" $file
+    [ -n "$SUPPORT_URL" ] && sed -i "s|^SUPPORT_URL=.*|SUPPORT_URL=${quote}${SUPPORT_URL}${quote}|" $file
+    [ -n "$BUG_REPORT_URL" ] && sed -i "s|^BUG_REPORT_URL=.*|BUG_REPORT_URL=${quote}${BUG_REPORT_URL}${quote}|" $file
+    [ -n "$PRIVACY_POLICY_URL" ] && sed -i "s|^PRIVACY_POLICY_URL=.*|PRIVACY_POLICY_URL=${quote}${PRIVACY_POLICY_URL}${quote}|" $file
+    [ -n "$LOGO" ] && sed -i "s|^LOGO=.*|LOGO=${quote}${LOGO}${quote}|" $file
+
+    # Ensure critical fields exist (ID_LIKE is often missing in bare Arch)
+    if [ -n "$ID_LIKE" ] && ! grep -q "^ID_LIKE=" $file; then
+        echo "ID_LIKE=${quote}${ID_LIKE}${quote}" >> $file
+    fi
+}
+
+Main() {
+    Os_release
+}
+
+Main "$@"

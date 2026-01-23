@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/lib/os-release
+
+[Action]
+Description = Restoring Linexin os-release...
+When = PostTransaction
+Exec = /usr/bin/linexin-hooks-runner os-release
