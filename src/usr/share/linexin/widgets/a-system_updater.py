@@ -706,6 +706,8 @@ class LinexInUpdaterWidget(Gtk.Box):
     def run_shell_command(self, command):
         """Execute shell command in a separate thread"""
         def stream_output():
+            if sudo_manager:
+                sudo_manager.start_privileged_session()
             try:
                 env = sudo_manager.get_env()
                 env['PACMAN_AUTH'] = sudo_manager.wrapper_path
@@ -747,6 +749,9 @@ class LinexInUpdaterWidget(Gtk.Box):
         return False
     def finish_installation(self):
         """Handle installation completion"""
+        if sudo_manager:
+             sudo_manager.stop_privileged_session()
+        
         if self.error_message and self.detected_alpm_error and not self.retry_in_progress:
             self.retry_in_progress = True
             self.error_message = None                                        
