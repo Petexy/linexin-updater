@@ -649,7 +649,10 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.btn_retry.set_visible(False)
         priv_cmd = sudo_manager.wrapper_path
         if self.include_aur_updates:
+            kwin_effects_packages = self.get_kwin_effects_rebuild_command()
             command = f"echo Updating {product_name}... && paru -Syu --noconfirm --overwrite '*' --sudo '{priv_cmd}' && flatpak update --assumeyes"
+            if kwin_effects_packages:
+                command += f" && echo 'Rebuilding kwin effects to relink against new kwin...' && paru -S --overwrite '*' --rebuild --noconfirm --sudo '{priv_cmd}' {kwin_effects_packages}"
         else:
             aur_helper_rebuild = self.get_aur_helper_rebuild_command()
             kwin_effects_packages = self.get_kwin_effects_rebuild_command()
