@@ -13,13 +13,36 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gst", "1.0")
 from gi.repository import Gtk, Adw, GLib, Gst
+import importlib.util
 APP_NAME = "linexin-updater"
-LOCALE_DIR = os.path.abspath("/usr/share/locale")
-locale.setlocale(locale.LC_ALL, '')
-locale.bindtextdomain(APP_NAME, LOCALE_DIR)
-gettext.bindtextdomain(APP_NAME, LOCALE_DIR)
-gettext.textdomain(APP_NAME)
-_ = gettext.gettext
+
+def load_translations():
+    """Load translation dictionary based on system locale"""
+    try:
+        # Get language from environment
+        lang = os.environ.get('LANG', 'en_US').split('.')[0]
+        # Allow override/check other vars
+        if not lang or lang == 'C':
+             lang = 'en_US'
+             
+        # Locate dictionary file relative to this script
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        loc_file = os.path.join(base_dir, "localization", lang, "system_updater_dictionary.py")
+        
+        if os.path.exists(loc_file):
+            spec = importlib.util.spec_from_file_location("start_dict", loc_file)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return getattr(mod, "translations", {})
+    except Exception as e:
+        print(f"Translation load error: {e}")
+    return {}
+
+TRANSLATIONS = load_translations()
+
+def _(text):
+    """Translate text using loaded dictionary"""
+    return TRANSLATIONS.get(text, text)
 class SoundPlayer:
     def __init__(self):
         Gst.init(None)
