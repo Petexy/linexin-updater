@@ -1,6 +1,5 @@
 translations = {
     "System Updater": "系统更新程序",
-
     "Press thew button below to install all of the updates": "点击下方按钮安装所有更新。",
     "1 update available": "有 1 个更新可用",
     "updates available": "个更新可用",
@@ -28,8 +27,6 @@ translations = {
     "Cancel": "取消",
     "Unlock": "解锁",
     "Password": "密码",
-
-    # Missing translations added automatically
     "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---": "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---",
     "Authentication Failed": "Authentication Failed",
     "Error checking updates": "Error checking updates",

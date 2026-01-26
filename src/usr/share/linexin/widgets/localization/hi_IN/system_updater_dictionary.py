@@ -1,6 +1,5 @@
 translations = {
     "System Updater": "सिस्टम अपडेटर",
-
     "Press thew button below to install all of the updates": "सभी अपडेट इंस्टॉल करने के लिए नीचे दिए गए बटन को दबाएं।",
     "1 update available": "1 अपडेट उपलब्ध",
     "updates available": "अपडेट उपलब्ध",
@@ -28,8 +27,6 @@ translations = {
     "Cancel": "रद्द करें",
     "Unlock": "अनलॉक करें",
     "Password": "पासवर्ड",
-
-    # Missing translations added automatically
     "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---": "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---",
     "Authentication Failed": "Authentication Failed",
     "Error checking updates": "Error checking updates",

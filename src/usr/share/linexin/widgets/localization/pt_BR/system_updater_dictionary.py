@@ -1,6 +1,5 @@
 translations = {
     "System Updater": "Atualizador do Sistema",
-
     "Press thew button below to install all of the updates": "Pressione o botão abaixo para instalar todas as atualizações.",
     "1 update available": "1 atualização disponível",
     "updates available": "atualizações disponíveis",
@@ -28,8 +27,6 @@ translations = {
     "Cancel": "Cancelar",
     "Unlock": "Desbloquear",
     "Password": "Senha",
-
-    # Missing translations added automatically
     "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---": "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---",
     "Authentication Failed": "Authentication Failed",
     "Error checking updates": "Error checking updates",

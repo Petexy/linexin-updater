@@ -1,8 +1,5 @@
 translations = {
-    # Linexin Updater Widget strings
-    
     "System Updater": "System-Updater",
-
     "Press thew button below to install all of the updates": "Drücken Sie die Schaltfläche unten, um alle Updates zu installieren.",
     "1 update available": "1 Update verfügbar",
     "updates available": "Updates verfügbar",
@@ -30,8 +27,6 @@ translations = {
     "Cancel": "Abbrechen",
     "Unlock": "Entsperren",
     "Password": "Passwort",
-
-    # Missing translations added automatically
     "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---": "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---",
     "Authentication Failed": "Authentication Failed",
     "Error checking updates": "Error checking updates",

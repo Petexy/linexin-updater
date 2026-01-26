@@ -1,6 +1,5 @@
 translations = {
     "System Updater": "Обновление системы",
-
     "Press thew button below to install all of the updates": "Нажмите кнопку ниже, чтобы установить все обновления.",
     "1 update available": "Доступно 1 обновление",
     "updates available": "доступные обновления",
@@ -28,8 +27,6 @@ translations = {
     "Cancel": "Отмена",
     "Unlock": "Разблокировать",
     "Password": "Пароль",
-
-    # Missing translations added automatically
     "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---": "--- DETECTED BROKEN PARU: Compiling fresh source from AUR... ---",
     "Authentication Failed": "Authentication Failed",
     "Error checking updates": "Error checking updates",
