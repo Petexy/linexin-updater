@@ -16,6 +16,9 @@ from gi.repository import Gtk, Adw, GLib, Gst
 import importlib.util
 APP_NAME = "linexin-updater"
 
+# --- Set to False for official/release builds ---
+DEBUG_MODE = False
+
 def load_translations():
     """Load translation dictionary based on system locale"""
     try:
@@ -320,6 +323,12 @@ class LinexInUpdaterWidget(Gtk.Box):
         button_box.append(self.btn_install)
         button_box.append(self.btn_toggle_progress)
         button_box.append(self.btn_retry)
+        if DEBUG_MODE:
+            self.btn_debug_kwin = Gtk.Button(label="[DBG] Rebuild KWin Effects")
+            self.btn_debug_kwin.add_css_class("destructive-action")
+            self.btn_debug_kwin.add_css_class("buttons_all")
+            self.btn_debug_kwin.connect("clicked", self.on_debug_rebuild_kwin_clicked)
+            button_box.append(self.btn_debug_kwin)
         controls_box.append(button_box)
         self.append(controls_box)
     def create_update_row(self, package_name, current_version, new_version, repo=""):
@@ -583,36 +592,123 @@ class LinexInUpdaterWidget(Gtk.Box):
         except:
             pass
         return False
-    def get_kwin_effects_rebuild_command(self):
-        """Check if kwin is being updated and return package names that need rebuilding"""
+    def get_kwin_effects_rebuild_command(self, priv_cmd):
+        """Check if kwin or plasma is being updated and return a shell command to rebuild effects from source"""
         kwin_update = False
-        for update in self.available_updates:
-            if 'kwin' in update.get('name', '').lower():
+        for update in self.available_updates + self.aur_updates:
+            name = update.get('name', '').lower()
+            if 'kwin' in name or name.startswith('plasma-'):
                 kwin_update = True
                 break
         if not kwin_update:
             return ""
-        rebuild_packages = []
+        rebuild_cmds = []
         try:
             result = subprocess.run(['pacman', '-Q', 'kwin-effects-glass-git'], capture_output=True, text=True)
             if result.returncode == 0:
-                rebuild_packages.append('kwin-effects-glass-git')
+                rebuild_cmds.append(
+                    "echo 'Rebuilding kwin-effects-glass from source...' && "
+                    "rm -rf /tmp/_kwin_glass_build && "
+                    "git clone --depth 1 https://github.com/4v3ngR/kwin-effects-glass /tmp/_kwin_glass_build && "
+                    "cmake -B /tmp/_kwin_glass_build/build -S /tmp/_kwin_glass_build -DCMAKE_INSTALL_PREFIX=/usr && "
+                    "cmake --build /tmp/_kwin_glass_build/build && "
+                    f"{priv_cmd} cmake --install /tmp/_kwin_glass_build/build && "
+                    "rm -rf /tmp/_kwin_glass_build"
+                )
         except:
             pass
         try:
             result = subprocess.run(['pacman', '-Q', 'kwin-effect-rounded-corners-git'], capture_output=True, text=True)
             if result.returncode == 0:
-                rebuild_packages.append('kwin-effect-rounded-corners-git')
+                rebuild_cmds.append(
+                    "echo 'Rebuilding KDE-Rounded-Corners from source...' && "
+                    "rm -rf /tmp/_kwin_rounded_build && "
+                    "git clone --depth 1 https://github.com/matinlotfali/KDE-Rounded-Corners /tmp/_kwin_rounded_build && "
+                    "cmake -B /tmp/_kwin_rounded_build/build -S /tmp/_kwin_rounded_build -DCMAKE_INSTALL_PREFIX=/usr && "
+                    "cmake --build /tmp/_kwin_rounded_build/build && "
+                    f"{priv_cmd} cmake --install /tmp/_kwin_rounded_build/build && "
+                    "rm -rf /tmp/_kwin_rounded_build"
+                )
         except:
             pass
-        if not rebuild_packages:
+        if not rebuild_cmds:
             return ""
-        return ' '.join(rebuild_packages)
+        return " && ".join(rebuild_cmds)
+    def _get_kwin_effects_force_rebuild_command(self, priv_cmd):
+        """Return the rebuild-from-source command for all installed kwin effects, unconditionally."""
+        rebuild_cmds = []
+        try:
+            result = subprocess.run(['pacman', '-Q', 'kwin-effects-glass-git'], capture_output=True, text=True)
+            if result.returncode == 0:
+                rebuild_cmds.append(
+                    "echo 'Rebuilding kwin-effects-glass from source...' && "
+                    "rm -rf /tmp/_kwin_glass_build && "
+                    "git clone --depth 1 https://github.com/4v3ngR/kwin-effects-glass /tmp/_kwin_glass_build && "
+                    "cmake -B /tmp/_kwin_glass_build/build -S /tmp/_kwin_glass_build -DCMAKE_INSTALL_PREFIX=/usr && "
+                    "cmake --build /tmp/_kwin_glass_build/build && "
+                    f"{priv_cmd} cmake --install /tmp/_kwin_glass_build/build && "
+                    "rm -rf /tmp/_kwin_glass_build"
+                )
+        except:
+            pass
+        try:
+            result = subprocess.run(['pacman', '-Q', 'kwin-effect-rounded-corners-git'], capture_output=True, text=True)
+            if result.returncode == 0:
+                rebuild_cmds.append(
+                    "echo 'Rebuilding KDE-Rounded-Corners from source...' && "
+                    "rm -rf /tmp/_kwin_rounded_build && "
+                    "git clone --depth 1 https://github.com/matinlotfali/KDE-Rounded-Corners /tmp/_kwin_rounded_build && "
+                    "cmake -B /tmp/_kwin_rounded_build/build -S /tmp/_kwin_rounded_build -DCMAKE_INSTALL_PREFIX=/usr && "
+                    "cmake --build /tmp/_kwin_rounded_build/build && "
+                    f"{priv_cmd} cmake --install /tmp/_kwin_rounded_build/build && "
+                    "rm -rf /tmp/_kwin_rounded_build"
+                )
+        except:
+            pass
+        if not rebuild_cmds:
+            return ""
+        return " && ".join(rebuild_cmds)
+
+    def on_debug_rebuild_kwin_clicked(self, button):
+        """[DEBUG] Force-rebuild kwin effects from source, regardless of pending updates."""
+        if not self.user_password:
+            self.prompt_for_password(callback=self.on_debug_rebuild_kwin_clicked)
+            return
+        if not self.validate_password():
+            self.user_password = None
+            root = self.get_root() or self.window
+            dialog = Adw.MessageDialog(
+                heading=_("Authentication Failed"),
+                body=_("The password you entered is incorrect. Please try again."),
+                transient_for=root
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.set_response_appearance("ok", Adw.ResponseAppearance.DEFAULT)
+            dialog.connect("response", lambda d, r: d.close())
+            dialog.present()
+            return
+        priv_cmd = sudo_manager.wrapper_path
+        command = self._get_kwin_effects_force_rebuild_command(priv_cmd)
+        if not command:
+            root = self.get_root() or self.window
+            dialog = Adw.MessageDialog(
+                heading="No KWin Effects Installed",
+                body="Neither kwin-effects-glass-git nor kwin-effect-rounded-corners-git is installed.",
+                transient_for=root
+            )
+            dialog.add_response("ok", "OK")
+            dialog.connect("response", lambda d, r: d.close())
+            dialog.present()
+            return
+        self.begin_install(command, "KWin Effects (debug rebuild)")
+
     def on_shutdown_toggled(self, switch, param):
         """Handle shutdown toggle switch"""
         self.turn_off_after_install = switch.get_active()
-    def prompt_for_password(self):
+    def prompt_for_password(self, callback=None):
         """Prompt user for sudo password using Adw.MessageDialog"""
+        if callback is None:
+            callback = self.on_install_clicked
         root = self.get_root()
         if not root:
             root = self.window
@@ -634,7 +730,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                 pwd = entry.get_text()
                 if pwd:
                     self.user_password = pwd
-                    self.on_install_clicked(None)
+                    callback(None)
             dialog.close()
         dialog.connect("response", on_response)
         def on_entry_activate(widget):
@@ -671,21 +767,21 @@ class LinexInUpdaterWidget(Gtk.Box):
         product_name = distro.name()
         self.btn_retry.set_visible(False)
         priv_cmd = sudo_manager.wrapper_path
+        kwin_rebuild_cmd = self.get_kwin_effects_rebuild_command(priv_cmd)
         if self.include_aur_updates:
-            kwin_effects_packages = self.get_kwin_effects_rebuild_command()
-            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --overwrite '*' --sudo '{priv_cmd}' && flatpak update --assumeyes"
-            if kwin_effects_packages:
-                command += f" && echo 'Rebuilding kwin effects to relink against new kwin...' && paru -S --overwrite '*' --rebuild --noconfirm --sudo '{priv_cmd}' {kwin_effects_packages}"
+            command = f"echo Updating {product_name}... && paru -Syu --noconfirm --overwrite '*' --sudo '{priv_cmd}'"
+            command += " && { flatpak update --assumeyes || true; }"
+            if kwin_rebuild_cmd:
+                command += f" && {kwin_rebuild_cmd}"
         else:
             aur_helper_rebuild = self.get_aur_helper_rebuild_command()
-            kwin_effects_packages = self.get_kwin_effects_rebuild_command()
             privileged_cmds = f"{priv_cmd} pacman -Syu --noconfirm --overwrite '*'"
             if aur_helper_rebuild:
                 privileged_cmds += f" && echo 'Reinstalling paru to relink against new libalpm...' && {priv_cmd} pacman -S --noconfirm paru"
             command = f"echo Updating {product_name}... && sh -c '{privileged_cmds}'"
-            command += " && flatpak update --assumeyes"
-            if kwin_effects_packages:
-                command += f" && echo 'Rebuilding kwin effects to relink against new kwin...' && paru -S --overwrite '*' --rebuild --noconfirm --sudo '{priv_cmd}' {kwin_effects_packages}"
+            command += " && { flatpak update --assumeyes || true; }"
+            if kwin_rebuild_cmd:
+                command += f" && {kwin_rebuild_cmd}"
         self.begin_install(command, product_name)
     def begin_install(self, command, product_name):
         """Start the installation process"""

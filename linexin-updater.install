@@ -1,3 +1,40 @@
+rebuild_kwin_effects()
+{
+   # Rebuild kwin effects from source if they are installed.
+   # These must be compiled against the currently installed kwin headers,
+   # so we clone and build from upstream GitHub rather than relying on AUR.
+
+   DESKTOP_USER=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | head -n1)
+   if [[ -z "$DESKTOP_USER" ]]; then
+      echo "No desktop user found, skipping kwin effects rebuild."
+      return
+   fi
+
+   if pacman -Q kwin-effects-glass-git &>/dev/null; then
+      echo "Rebuilding kwin-effects-glass from source..."
+      sudo -u "$DESKTOP_USER" bash -c '
+         set -e
+         rm -rf /tmp/_kwin_glass_build
+         git clone --depth 1 https://github.com/4v3ngR/kwin-effects-glass /tmp/_kwin_glass_build
+         cmake -B /tmp/_kwin_glass_build/build -S /tmp/_kwin_glass_build -DCMAKE_INSTALL_PREFIX=/usr
+         cmake --build /tmp/_kwin_glass_build/build
+      ' && cmake --install /tmp/_kwin_glass_build/build && rm -rf /tmp/_kwin_glass_build \
+        || echo "Warning: kwin-effects-glass rebuild failed." >&2
+   fi
+
+   if pacman -Q kwin-effect-rounded-corners-git &>/dev/null; then
+      echo "Rebuilding KDE-Rounded-Corners from source..."
+      sudo -u "$DESKTOP_USER" bash -c '
+         set -e
+         rm -rf /tmp/_kwin_rounded_build
+         git clone --depth 1 https://github.com/matinlotfali/KDE-Rounded-Corners /tmp/_kwin_rounded_build
+         cmake -B /tmp/_kwin_rounded_build/build -S /tmp/_kwin_rounded_build -DCMAKE_INSTALL_PREFIX=/usr
+         cmake --build /tmp/_kwin_rounded_build/build
+      ' && cmake --install /tmp/_kwin_rounded_build/build && rm -rf /tmp/_kwin_rounded_build \
+        || echo "Warning: KDE-Rounded-Corners rebuild failed." >&2
+   fi
+}
+
 post_upgrade()
 {
    # This script checks a version file and reports if it's outdated.
@@ -46,5 +83,8 @@ post_upgrade()
 
       
    fi
+
+   rebuild_kwin_effects
+
    exit 0
 }
