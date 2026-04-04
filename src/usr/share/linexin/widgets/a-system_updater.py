@@ -153,7 +153,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         if self.window:
             try:
                 self.window.set_default_size(600, 300)
-                print("Window default size set to 1400x800")
+                print("Window default size set to 600x300")
             except Exception as e:
                 print(f"Failed to resize window: {e}")
         return False
@@ -453,7 +453,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                 self.flatpak_updates = []
                 try:
                     result = subprocess.run(['checkupdates'], 
-                                          capture_output=True, text=True, timeout=30, env={'LC_ALL': 'C'})
+                                          capture_output=True, text=True, timeout=30, env={**os.environ, 'LC_ALL': 'C'})
                     if result.returncode == 0 and result.stdout.strip():
                         for line in result.stdout.strip().split('\n'):
                             if ' ' in line:
@@ -475,7 +475,7 @@ class LinexInUpdaterWidget(Gtk.Box):
                     pass                                        
                 try:
                     result = subprocess.run(['paru', '-Qu'], 
-                                          capture_output=True, text=True, timeout=30, env={'LC_ALL': 'C'})
+                                          capture_output=True, text=True, timeout=30, env={**os.environ, 'LC_ALL': 'C'})
                     if result.returncode == 0 and result.stdout.strip():
                         for line in result.stdout.strip().split('\n'):
                             if ' ' in line:
@@ -504,14 +504,14 @@ class LinexInUpdaterWidget(Gtk.Box):
                         updates = []
                         try:
                             remotes_cmd = ['flatpak', 'remotes', scope_flag, '--columns=name']
-                            res = subprocess.run(remotes_cmd, capture_output=True, text=True, timeout=10, env={'LC_ALL': 'C'})
+                            res = subprocess.run(remotes_cmd, capture_output=True, text=True, timeout=10, env={**os.environ, 'LC_ALL': 'C'})
                             if res.returncode != 0:
                                 return updates
                             remotes = [r.strip() for r in res.stdout.strip().split('\n') if r.strip()]
                             for remote in remotes:
                                 try:
                                     cmd = ['flatpak', 'remote-ls', scope_flag, '--updates', '--columns=ref,version', remote]
-                                    r_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15, env={'LC_ALL': 'C'})
+                                    r_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15, env={**os.environ, 'LC_ALL': 'C'})
                                     if r_res.returncode == 0 and r_res.stdout.strip():
                                         for line in r_res.stdout.strip().split('\n'):
                                             parts = line.split()
@@ -685,6 +685,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             dialog.add_response("ok", _("OK"))
             dialog.set_response_appearance("ok", Adw.ResponseAppearance.DEFAULT)
             dialog.connect("response", lambda d, r: d.close())
+            translate_dialog(dialog)
             dialog.present()
             return
         priv_cmd = sudo_manager.wrapper_path
@@ -692,12 +693,13 @@ class LinexInUpdaterWidget(Gtk.Box):
         if not command:
             root = self.get_root() or self.window
             dialog = Adw.MessageDialog(
-                heading="No KWin Effects Installed",
-                body="Neither kwin-effects-glass-git nor kwin-effect-rounded-corners-git is installed.",
+                heading=_("No KWin Effects Installed"),
+                body=_("Neither kwin-effects-glass-git nor kwin-effect-rounded-corners-git is installed."),
                 transient_for=root
             )
-            dialog.add_response("ok", "OK")
+            dialog.add_response("ok", _("OK"))
             dialog.connect("response", lambda d, r: d.close())
+            translate_dialog(dialog)
             dialog.present()
             return
         self.begin_install(command, "KWin Effects (debug rebuild)")
@@ -736,6 +738,7 @@ class LinexInUpdaterWidget(Gtk.Box):
         def on_entry_activate(widget):
             dialog.response("unlock")
         entry.connect("activate", on_entry_activate)
+        translate_dialog(dialog)
         dialog.present()
     def validate_password(self):
         """Validate the sudo password using sudo -S"""
@@ -762,6 +765,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             dialog.add_response("ok", _("OK"))
             dialog.set_response_appearance("ok", Adw.ResponseAppearance.DEFAULT)
             dialog.connect("response", lambda d, r: d.close())
+            translate_dialog(dialog)
             dialog.present()
             return
         product_name = distro.name()
@@ -901,6 +905,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             return False
         if sudo_manager:
             sudo_manager.forget_password()
+        self.user_password = None
         self.install_started = False
         self.btn_install.set_sensitive(True)
         self.aur_switch.set_sensitive(True)
