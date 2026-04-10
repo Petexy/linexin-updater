@@ -9,12 +9,25 @@ import stat
 import distro
 import tempfile
 import atexit
+import datetime
+import re
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gst", "1.0")
 from gi.repository import Gtk, Adw, GLib, Gst
 import importlib.util
 APP_NAME = "linexin-updater"
+WIDE_LAYOUT_THRESHOLD = 800
+WIDE_LAYOUT_SIDE_PADDING = 12
+LEFT_PANE_MIN_WIDTH = 300
+LAYOUT_ANIMATION_DURATION = 350
+CRITICAL_PACKAGE_PREFIXES = (
+    'linux', 'glibc', 'systemd', 'grub', 'mkinitcpio', 'nvidia',
+    'mesa', 'xorg-server', 'wayland', 'efibootmgr', 'fwupd',
+    'plasma-desktop', 'kwin', 'sddm', 'gdm', 'lightdm',
+    'nvidia-open', 'nvidia-dkms', 'nvidia-lts', 'linux-lts', 'linux-hardened',
+    'linux-zen', 'linux-rt', 'linux-amd-staging', 'linux-ck', 'linux-xanmod',
+)
 
 # --- Set to False for official/release builds ---
 DEBUG_MODE = False
@@ -82,25 +95,46 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.error_message = None
         self.turn_off_after_install = False
         self.include_aur_updates = True                                  
+        self.window = window
+        self.hide_sidebar = hide_sidebar
         self.available_updates = []
         self.flatpak_updates = []
         self.aur_updates = []
+        self.wide_layout_enabled = None
+        self.last_measured_width = 0
         self.checking_updates = False
         self.user_password = None
         self.last_command = ""
+        self.main_layout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.main_layout_box.set_hexpand(True)
+        self.main_layout_box.set_vexpand(True)
+        self.compact_layout_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.compact_layout_box.set_hexpand(True)
+        self.compact_layout_box.set_vexpand(True)
+        self.wide_paned = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
+        self.wide_paned.set_hexpand(True)
+        self.wide_paned.set_vexpand(True)
+        self.wide_paned.set_resize_start_child(True)
+        self.wide_paned.set_shrink_start_child(False)
+        self.wide_paned.set_resize_end_child(False)
+        self.wide_paned.set_shrink_end_child(False)
+        self.controls_revealer = Gtk.Revealer()
+        self.controls_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
+        self.controls_revealer.set_transition_duration(LAYOUT_ANIMATION_DURATION)
+        self.controls_revealer.set_reveal_child(True)
         self.content_stack = Gtk.Stack()
         self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_UP_DOWN)
         self.content_stack.set_hexpand(True)
         self.content_stack.set_vexpand(True)
-        self.append(self.content_stack)
+        self.append(self.main_layout_box)
         self.setup_updates_view()
         self.setup_info_view()
         self.setup_progress_view()
         self.setup_single_widget_view()
         self.setup_controls()
+        self.update_adaptive_layout(force=True)
+        GLib.timeout_add(200, self.monitor_adaptive_layout)
         self.updates_checked = False
-        self.window = window
-        self.hide_sidebar = hide_sidebar
         if not self.hide_sidebar:
             self.content_stack.set_visible_child_name("updates_view")
             self.check_for_updates()
@@ -212,6 +246,14 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.updates_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         self.updates_scrolled.set_child(self.updates_listbox)
         updates_box.append(self.updates_scrolled)
+        self.updates_warnings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.updates_warnings_box.set_margin_top(4)
+        self.updates_warnings_revealer = Gtk.Revealer()
+        self.updates_warnings_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
+        self.updates_warnings_revealer.set_transition_duration(300)
+        self.updates_warnings_revealer.set_reveal_child(False)
+        self.updates_warnings_revealer.set_child(self.updates_warnings_box)
+        updates_box.append(self.updates_warnings_revealer)
         self.content_stack.add_named(updates_box, "updates_view")
     def setup_info_view(self):
         """Setup the info view for status messages"""
@@ -238,6 +280,18 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.info_label.set_wrap(True)
         self.info_label.set_justify(Gtk.Justification.CENTER)
         info_box.append(self.info_label)
+        self.install_progress_bar = Gtk.ProgressBar()
+        self.install_progress_bar.set_show_text(True)
+        self.install_progress_bar.set_hexpand(True)
+        self.install_progress_bar.set_visible(False)
+        info_box.append(self.install_progress_bar)
+        self.install_status_label = Gtk.Label()
+        self.install_status_label.set_wrap(True)
+        self.install_status_label.set_justify(Gtk.Justification.CENTER)
+        self.install_status_label.add_css_class("dim-label")
+        self.install_status_label.add_css_class("caption")
+        self.install_status_label.set_visible(False)
+        info_box.append(self.install_status_label)
         self.content_stack.add_named(info_box, "info_view")
     def setup_progress_view(self):
         """Setup the progress view with terminal output"""
@@ -261,28 +315,18 @@ class LinexInUpdaterWidget(Gtk.Box):
     def setup_controls(self):
         """Setup control buttons and options"""
         controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        controls_box.set_hexpand(True)
+        controls_box.set_valign(Gtk.Align.END)
+        self.controls_box = controls_box
         options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         options_box.set_halign(Gtk.Align.FILL)
         options_box.set_margin_bottom(20)
         options_box.set_margin_start(30)                             
-        options_box.set_margin_end(30)                               
+        options_box.set_margin_end(30)
+        self.options_box = options_box                               
         options_listbox = Gtk.ListBox()
         options_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            listbox {
-                background: transparent;
-                border: none;
-            }
-            listbox > row {
-                background: transparent;
-                border: none;
-            }
-        """)
-        options_listbox.get_style_context().add_provider(
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        options_listbox.add_css_class("boxed-list")
         aur_row = Adw.ActionRow()
         aur_row.set_title(_("Include AUR updates"))
         aur_row.set_subtitle(_("When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage"))
@@ -304,18 +348,24 @@ class LinexInUpdaterWidget(Gtk.Box):
         options_box.append(options_listbox)
         controls_box.append(options_box)
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        button_box.set_halign(Gtk.Align.CENTER)
+        button_box.set_halign(Gtk.Align.FILL)
+        button_box.set_margin_start(30)
+        button_box.set_margin_end(30)
+        self.button_box = button_box
         self.btn_install = Gtk.Button(label=_("Install Updates"))
+        self.btn_install.set_hexpand(True)
         self.btn_install.add_css_class("suggested-action")
         self.btn_install.add_css_class("buttons_all")
         self.btn_install.connect("clicked", self.on_install_clicked)
         self.btn_install.set_sensitive(False)                      
         self.btn_toggle_progress = Gtk.Button(label=_("Show Progress"))
+        self.btn_toggle_progress.set_hexpand(True)
         self.btn_toggle_progress.set_sensitive(False)
         self.btn_toggle_progress.set_visible(False)
         self.btn_toggle_progress.add_css_class("buttons_all")
         self.btn_toggle_progress.connect("clicked", self.on_toggle_progress_clicked)
         self.btn_retry = Gtk.Button(label=_("Retry"))
+        self.btn_retry.set_hexpand(True)
         self.btn_retry.set_margin_start(30)
         self.btn_retry.add_css_class("buttons_all")
         self.btn_retry.set_visible(False)
@@ -330,7 +380,674 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.btn_debug_kwin.connect("clicked", self.on_debug_rebuild_kwin_clicked)
             button_box.append(self.btn_debug_kwin)
         controls_box.append(button_box)
-        self.append(controls_box)
+        self.controls_box = controls_box
+        GLib.idle_add(self.update_controls_min_width)
+        self.setup_info_panel()
+
+    def setup_info_panel(self):
+        """Setup the wide-mode info panel shown above controls in the right pane."""
+        self.info_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.info_panel.set_vexpand(True)
+
+        self._row_selected_handler_id = None
+
+        self.info_panel_stack = Gtk.Stack()
+        self.info_panel_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.info_panel_stack.set_transition_duration(200)
+        self.info_panel_stack.set_vexpand(True)
+
+        # --- Default view: update summary + system stats + warnings ---
+        default_scroll = Gtk.ScrolledWindow()
+        default_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        default_scroll.set_vexpand(True)
+
+        default_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        default_box.set_valign(Gtk.Align.CENTER)
+        default_box.set_halign(Gtk.Align.FILL)
+        default_box.set_margin_top(12)
+        default_box.set_margin_bottom(12)
+        default_box.set_margin_start(WIDE_LAYOUT_SIDE_PADDING)
+        default_box.set_margin_end(WIDE_LAYOUT_SIDE_PADDING)
+
+        # Update summary section
+        summary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        summary_box.set_halign(Gtk.Align.CENTER)
+
+        summary_icon = Gtk.Image.new_from_icon_name("software-update-available-symbolic")
+        summary_icon.set_pixel_size(48)
+        summary_icon.add_css_class("dim-label")
+        summary_box.append(summary_icon)
+
+        self.summary_title_label = Gtk.Label(label=_("No updates"))
+        self.summary_title_label.add_css_class("title-2")
+        summary_box.append(self.summary_title_label)
+
+        self.summary_breakdown_label = Gtk.Label(label="")
+        self.summary_breakdown_label.add_css_class("dim-label")
+        self.summary_breakdown_label.set_wrap(True)
+        self.summary_breakdown_label.set_justify(Gtk.Justification.CENTER)
+        summary_box.append(self.summary_breakdown_label)
+
+        # Warnings section — moved to the left pane (updates_warnings_box)
+        self.warnings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.warnings_box.set_visible(False)  # unused placeholder
+
+        default_box.append(summary_box)
+
+        # System stats rows
+        stats_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        stats_list = Gtk.ListBox()
+        stats_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        stats_list.add_css_class("boxed-list")
+
+        self.stats_last_update_row = Adw.ActionRow()
+        self.stats_last_update_row.set_icon_name("emblem-default-symbolic")
+        self.stats_last_update_row.set_title(_("Last updated"))
+        self.stats_last_update_row.set_subtitle(_("Unknown"))
+        stats_list.append(self.stats_last_update_row)
+
+        self.stats_packages_row = Adw.ActionRow()
+        self.stats_packages_row.set_icon_name("package-x-generic-symbolic")
+        self.stats_packages_row.set_title(_("Installed packages"))
+        self.stats_packages_row.set_subtitle("")
+        stats_list.append(self.stats_packages_row)
+
+        self.stats_download_size_row = Adw.ActionRow()
+        self.stats_download_size_row.set_icon_name("folder-download-symbolic")
+        self.stats_download_size_row.set_title(_("Download size"))
+        self.stats_download_size_row.set_subtitle(_("Calculating..."))
+        self.stats_download_size_row.set_visible(False)
+        stats_list.append(self.stats_download_size_row)
+
+        stats_frame.append(stats_list)
+        default_box.append(stats_frame)
+
+        # Hint label
+        hint_label = Gtk.Label(label=_("Select a package for details"))
+        hint_label.add_css_class("dim-label")
+        hint_label.add_css_class("caption")
+        hint_label.set_margin_top(4)
+        default_box.append(hint_label)
+
+        default_scroll.set_child(default_box)
+        self.info_panel_stack.add_named(default_scroll, "default")
+
+        # --- Package detail view ---
+        detail_scroll = Gtk.ScrolledWindow()
+        detail_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        detail_scroll.set_vexpand(True)
+
+        detail_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        detail_outer.set_margin_top(8)
+        detail_outer.set_margin_bottom(12)
+        detail_outer.set_margin_start(WIDE_LAYOUT_SIDE_PADDING)
+        detail_outer.set_margin_end(WIDE_LAYOUT_SIDE_PADDING)
+
+        # Header with back button and package name
+        detail_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        detail_header.set_valign(Gtk.Align.START)
+
+        back_btn = Gtk.Button()
+        back_btn.set_valign(Gtk.Align.CENTER)
+        back_btn.set_icon_name("go-previous-symbolic")
+        back_btn.set_tooltip_text(_("Back to overview"))
+        back_btn.add_css_class("flat")
+        back_btn.connect("clicked", lambda b: self.show_info_panel_default())
+        detail_header.append(back_btn)
+
+        self.detail_name_label = Gtk.Label()
+        self.detail_name_label.set_halign(Gtk.Align.START)
+        self.detail_name_label.set_hexpand(True)
+        self.detail_name_label.add_css_class("title-2")
+        self.detail_name_label.set_wrap(True)
+        detail_header.append(self.detail_name_label)
+
+        detail_outer.append(detail_header)
+
+        # Detail fields in a boxed list
+        self.detail_list = Gtk.ListBox()
+        self.detail_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.detail_list.add_css_class("boxed-list")
+        detail_outer.append(self.detail_list)
+
+        # Warning banner area
+        self.detail_warning_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        detail_outer.append(self.detail_warning_box)
+
+        detail_scroll.set_child(detail_outer)
+        self.info_panel_stack.add_named(detail_scroll, "detail")
+
+        # --- Updating view ---
+        updating_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        updating_box.set_valign(Gtk.Align.CENTER)
+        updating_box.set_halign(Gtk.Align.CENTER)
+        updating_box.set_margin_start(WIDE_LAYOUT_SIDE_PADDING)
+        updating_box.set_margin_end(WIDE_LAYOUT_SIDE_PADDING)
+
+        updating_spinner = Gtk.Spinner()
+        updating_spinner.set_size_request(48, 48)
+        updating_spinner.start()
+        updating_box.append(updating_spinner)
+
+        self.updating_label = Gtk.Label()
+        self.updating_label.add_css_class("title-2")
+        self.updating_label.set_wrap(True)
+        self.updating_label.set_justify(Gtk.Justification.CENTER)
+        updating_box.append(self.updating_label)
+
+        self.updating_sublabel = Gtk.Label(label=_("Please wait..."))
+        self.updating_sublabel.add_css_class("dim-label")
+        updating_box.append(self.updating_sublabel)
+
+        self.info_panel_stack.add_named(updating_box, "updating")
+
+        self.info_panel.append(self.info_panel_stack)
+
+    def get_last_update_time(self):
+        """Get the last system update time from pacman log."""
+        try:
+            result = subprocess.run(
+                ['grep', '-a', 'starting full system upgrade', '/var/log/pacman.log'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                last_line = result.stdout.strip().splitlines()[-1]
+                timestamp = last_line.split(']')[0].lstrip('[').strip()
+                dt = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S%z")
+                now = datetime.datetime.now(datetime.timezone.utc)
+                delta = now - dt
+                if delta.days == 0:
+                    return _("Today")
+                elif delta.days == 1:
+                    return _("Yesterday")
+                else:
+                    return _("{} days ago").format(delta.days)
+        except Exception:
+            pass
+        return _("Unknown")
+
+    def get_installed_package_count(self):
+        """Get the number of installed pacman and flatpak packages."""
+        pacman_count = None
+        flatpak_count = None
+        try:
+            result = subprocess.run(
+                ['pacman', '-Q'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                pacman_count = len(result.stdout.strip().splitlines())
+        except Exception:
+            pass
+        try:
+            result = subprocess.run(
+                ['flatpak', 'list', '--app'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                flatpak_count = len([l for l in result.stdout.strip().splitlines() if l.strip()])
+        except Exception:
+            pass
+        if pacman_count is not None and flatpak_count:
+            return f"{pacman_count} {_('System')} + {flatpak_count} Flatpak"
+        elif pacman_count is not None:
+            return str(pacman_count)
+        return ""
+
+    def get_download_size(self):
+        """Return total download size for pending pacman/AUR updates as a formatted string, or None."""
+        pkg_names = [u['name'] for u in self.available_updates]
+        if self.include_aur_updates:
+            pkg_names += [u['name'] for u in self.aur_updates]
+        if not pkg_names:
+            return None
+        try:
+            result = subprocess.run(
+                ['pacman', '-Si'] + pkg_names,
+                capture_output=True, text=True, timeout=20,
+                env={**os.environ, 'LC_ALL': 'C'}
+            )
+            total_bytes = 0.0
+            for line in result.stdout.splitlines():
+                if line.startswith('Download Size'):
+                    _, _, rest = line.partition(':')
+                    parts = rest.strip().split()
+                    if len(parts) >= 2:
+                        try:
+                            value = float(parts[0])
+                            unit = parts[1]
+                            if unit in ('KiB',):
+                                total_bytes += value * 1024
+                            elif unit in ('MiB',):
+                                total_bytes += value * 1024 * 1024
+                            elif unit in ('GiB',):
+                                total_bytes += value * 1024 * 1024 * 1024
+                            else:  # bytes
+                                total_bytes += value
+                        except ValueError:
+                            pass
+            if total_bytes <= 0:
+                return None
+            mb = total_bytes / (1024 * 1024)
+            if mb < 1:
+                return f"{total_bytes / 1024:.1f} KB"
+            elif mb < 1024:
+                return f"{mb:.1f} MB"
+            else:
+                return f"{mb / 1024:.2f} GB"
+        except Exception:
+            return None
+
+    def get_critical_updates(self):
+        """Return list of critical/core packages found in pending updates."""
+        critical = []
+        all_updates = self.available_updates + self.aur_updates
+        for update in all_updates:
+            name = update.get('name', '').lower()
+            for prefix in CRITICAL_PACKAGE_PREFIXES:
+                if name == prefix or name.startswith(prefix + '-') or name.startswith(prefix):
+                    critical.append(update)
+                    break
+        return critical
+
+    def refresh_info_panel(self):
+        """Update the info panel with current system stats and warnings."""
+        if not hasattr(self, 'info_panel'):
+            return
+
+        def _load_stats():
+            last_update = self.get_last_update_time()
+            pkg_count = self.get_installed_package_count()
+            # Only run the slow pacman -Si query when the package list is final
+            download_size = None if self.checking_updates else self.get_download_size()
+            GLib.idle_add(self._apply_info_panel_stats, last_update, pkg_count, download_size)
+
+        threading.Thread(target=_load_stats, daemon=True).start()
+
+    def _apply_info_panel_stats(self, last_update, pkg_count, download_size=None, still_checking=False):
+        """Apply loaded stats to the info panel (must run on main thread)."""
+        self.stats_last_update_row.set_subtitle(last_update)
+        self.stats_packages_row.set_subtitle(pkg_count if pkg_count else _("Unknown"))
+        # Re-read checking_updates live — avoids stale snapshots from earlier closures
+        if self.checking_updates:
+            self.stats_download_size_row.set_subtitle(_("Calculating..."))
+            self.stats_download_size_row.set_visible(True)
+        elif download_size:
+            self.stats_download_size_row.set_subtitle(download_size)
+            self.stats_download_size_row.set_visible(True)
+        else:
+            self.stats_download_size_row.set_visible(False)
+
+        # Update summary
+        all_updates = list(self.available_updates)
+        if self.include_aur_updates:
+            all_updates += list(self.aur_updates)
+        all_updates += list(self.flatpak_updates)
+        total = len(all_updates)
+
+        if total == 0:
+            self.summary_title_label.set_text(_("System is up to date"))
+        elif total == 1:
+            self.summary_title_label.set_text(_("1 update available"))
+        else:
+            self.summary_title_label.set_text(_("{} updates available").format(total))
+
+        parts = []
+        if self.available_updates:
+            parts.append(_("{} system").format(len(self.available_updates)))
+        if self.include_aur_updates and self.aur_updates:
+            parts.append(_("{} AUR").format(len(self.aur_updates)))
+        if self.flatpak_updates:
+            parts.append(_("{} Flatpak").format(len(self.flatpak_updates)))
+        self.summary_breakdown_label.set_text(", ".join(parts) if parts else "")
+        self.summary_breakdown_label.set_visible(bool(parts))
+
+        self._refresh_warnings()
+
+    def _refresh_warnings(self):
+        """Rebuild the warnings section below the updates list (visible in both layouts)."""
+        child = self.updates_warnings_box.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.updates_warnings_box.remove(child)
+            child = nxt
+
+        critical = self.get_critical_updates()
+        if not critical:
+            self.updates_warnings_revealer.set_reveal_child(False)
+            return
+
+        warn_frame = Gtk.Frame()
+        warn_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        warn_inner.set_margin_top(10)
+        warn_inner.set_margin_bottom(10)
+        warn_inner.set_margin_start(12)
+        warn_inner.set_margin_end(12)
+
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        warn_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        warn_icon.set_pixel_size(16)
+        title_row.append(warn_icon)
+        header = Gtk.Label(label=_("Core component updates"))
+        header.add_css_class("heading")
+        title_row.append(header)
+        warn_inner.append(title_row)
+
+        subtitle = Gtk.Label(label=_("A reboot may be required after updating"))
+        subtitle.set_halign(Gtk.Align.START)
+        subtitle.add_css_class("dim-label")
+        subtitle.add_css_class("caption")
+        subtitle.set_wrap(True)
+        warn_inner.append(subtitle)
+
+        for update in critical:
+            lbl = Gtk.Label(label=f"{update['name']}  {update['current']} → {update['new']}")
+            lbl.set_halign(Gtk.Align.START)
+            lbl.add_css_class("caption")
+            lbl.set_margin_start(24)
+            lbl.set_wrap(True)
+            warn_inner.append(lbl)
+
+        warn_frame.set_child(warn_inner)
+        self.updates_warnings_box.append(warn_frame)
+        self.updates_warnings_revealer.set_reveal_child(True)
+
+    def show_info_panel_default(self):
+        """Switch the info panel back to the default stats/warnings view."""
+        self.info_panel_stack.set_visible_child_name("default")
+        if self.wide_layout_enabled:
+            self.updates_listbox.unselect_all()
+
+    def show_package_detail(self, update_data):
+        """Show package detail in the info panel."""
+        self.detail_name_label.set_text(update_data.get('name', ''))
+
+        # Clear detail list
+        while True:
+            row = self.detail_list.get_row_at_index(0)
+            if row is None:
+                break
+            self.detail_list.remove(row)
+
+        fields = [
+            (_("Current version"), update_data.get('current', ''), "document-edit-symbolic"),
+            (_("New version"), update_data.get('new', ''), "emblem-ok-symbolic"),
+            (_("Repository"), update_data.get('repo', ''), "folder-remote-symbolic"),
+            (_("Type"), update_data.get('type', ''), "application-x-addon-symbolic"),
+        ]
+        if 'app_id' in update_data:
+            fields.append((_("Application ID"), update_data['app_id'], "application-x-executable-symbolic"))
+
+        for title, value, icon_name in fields:
+            if not value:
+                continue
+            row = Adw.ActionRow()
+            row.set_title(title)
+            row.set_subtitle(value)
+            row.set_icon_name(icon_name)
+            row.set_subtitle_selectable(True)
+            self.detail_list.append(row)
+
+        # Warning banner
+        child = self.detail_warning_box.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.detail_warning_box.remove(child)
+            child = nxt
+
+        name_lower = update_data.get('name', '').lower()
+        is_critical = any(
+            name_lower == p or name_lower.startswith(p + '-') or name_lower.startswith(p)
+            for p in CRITICAL_PACKAGE_PREFIXES
+        )
+        if is_critical:
+            banner_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            banner_box.set_margin_top(4)
+            warn_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+            warn_icon.set_pixel_size(16)
+            banner_box.append(warn_icon)
+            warn_lbl = Gtk.Label(label=_("Core component — a reboot may be required"))
+            warn_lbl.add_css_class("caption")
+            warn_lbl.set_wrap(True)
+            banner_box.append(warn_lbl)
+            self.detail_warning_box.append(banner_box)
+
+        self.info_panel_stack.set_visible_child_name("detail")
+
+    def on_update_row_selected(self, listbox, row):
+        """Handle row selection in the updates list (wide mode only)."""
+        if not self.wide_layout_enabled or row is None:
+            return
+        idx = row.get_index()
+        all_updates = list(self.available_updates)
+        if self.include_aur_updates:
+            all_updates += list(self.aur_updates)
+        all_updates += list(self.flatpak_updates)
+        if 0 <= idx < len(all_updates):
+            self.show_package_detail(all_updates[idx])
+
+    def get_controls_min_width(self):
+        """Measure the minimum width needed for the right-side controls pane"""
+        minimum, natural, _, _ = self.btn_install.measure(Gtk.Orientation.HORIZONTAL, -1)
+        button_width = max(minimum, natural)
+        return button_width + (WIDE_LAYOUT_SIDE_PADDING * 2)
+
+    def update_controls_min_width(self):
+        """Keep the controls pane at least slightly wider than the install button"""
+        # Always use get_controls_min_width() to be consistent with Paned constraints
+        self.controls_box.set_size_request(self.get_controls_min_width(), -1)
+        return False
+
+    def clear_box_children(self, box):
+        """Remove all children from a Gtk.Box"""
+        child = box.get_first_child()
+        while child:
+            next_child = child.get_next_sibling()
+            box.remove(child)
+            child = next_child
+
+    def detach_widget_from_parent(self, widget):
+        """Detach a widget from its current parent so it can be reparented"""
+        parent = widget.get_parent()
+        if not parent:
+            return
+        if isinstance(parent, Gtk.Revealer):
+            parent.set_child(None)
+            return
+        if isinstance(parent, Gtk.Box):
+            parent.remove(widget)
+            return
+        if isinstance(parent, Gtk.Paned):
+            if parent.get_start_child() == widget:
+                parent.set_start_child(None)
+            elif parent.get_end_child() == widget:
+                parent.set_end_child(None)
+
+    def monitor_adaptive_layout(self):
+        """Refresh the layout when the allocated widget width changes"""
+        width = self.get_width()
+        if width <= 0 and self.window:
+            width = self.window.get_width()
+        if width > 0 and width != self.last_measured_width:
+            self.last_measured_width = width
+            self.update_adaptive_layout(current_width=width)
+        return True
+
+    def update_adaptive_layout(self, force=False, current_width=None):
+        """Switch between stacked and split layout depending on the widget width"""
+        width = current_width if current_width is not None else self.get_width()
+        if width <= 0 and self.window:
+            width = self.window.get_width()
+        right_min_width = self.get_controls_min_width()
+        use_wide_layout = width > WIDE_LAYOUT_THRESHOLD if width > 0 else False
+        if not force and use_wide_layout == self.wide_layout_enabled:
+            return False
+        # Cancel any running layout animation
+        if hasattr(self, '_layout_anim') and self._layout_anim is not None:
+            self._layout_anim.skip()
+            self._layout_anim = None
+        previous_layout = self.wide_layout_enabled
+        self.wide_layout_enabled = use_wide_layout
+        self.update_controls_min_width()
+        if use_wide_layout:
+            self.set_margin_start(0)
+            self.set_margin_end(0)
+            self.content_stack.set_margin_start(12)
+            self.content_stack.set_margin_end(WIDE_LAYOUT_SIDE_PADDING)
+            self.content_stack.set_size_request(LEFT_PANE_MIN_WIDTH, -1)
+            self.controls_box.set_margin_start(WIDE_LAYOUT_SIDE_PADDING)
+            self.controls_box.set_margin_end(WIDE_LAYOUT_SIDE_PADDING)
+            self.options_box.set_margin_start(WIDE_LAYOUT_SIDE_PADDING)
+            self.options_box.set_margin_end(WIDE_LAYOUT_SIDE_PADDING)
+            self.button_box.set_margin_start(WIDE_LAYOUT_SIDE_PADDING)
+            self.button_box.set_margin_end(WIDE_LAYOUT_SIDE_PADDING)
+            self.button_box.set_orientation(Gtk.Orientation.VERTICAL)
+            self.controls_box.set_valign(Gtk.Align.FILL)
+            self.controls_box.prepend(self.info_panel)
+            self.info_panel.set_visible(True)
+            self.updates_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+            if self._row_selected_handler_id is None:
+                self._row_selected_handler_id = self.updates_listbox.connect(
+                    "row-selected", self.on_update_row_selected
+                )
+            self.show_info_panel_default()
+            self.refresh_info_panel()
+        elif previous_layout is None or force:
+            # Only apply compact margins immediately for initial layout or forced refresh.
+            # For animated transitions, defer to _finish_compact_transition.
+            self.set_margin_start(12)
+            self.set_margin_end(12)
+            self.content_stack.set_margin_start(0)
+            self.content_stack.set_margin_end(0)
+            self.content_stack.set_size_request(-1, -1)
+            self.controls_box.set_margin_start(0)
+            self.controls_box.set_margin_end(0)
+            self.options_box.set_margin_start(30)
+            self.options_box.set_margin_end(30)
+            self.button_box.set_margin_start(30)
+            self.button_box.set_margin_end(30)
+            self.button_box.set_orientation(Gtk.Orientation.HORIZONTAL)
+            self._remove_info_panel_from_controls()
+        if use_wide_layout:
+            # --- Transition TO wide layout ---
+            controls_height = self.controls_box.get_height()
+            self.detach_widget_from_parent(self.content_stack)
+            self.detach_widget_from_parent(self.controls_box)
+            self.clear_box_children(self.main_layout_box)
+            target_position = max(0, min(width - right_min_width, int(width * 0.68)))
+            self.wide_paned.set_start_child(self.content_stack)
+            self.wide_paned.set_end_child(self.controls_box)
+            self.main_layout_box.append(self.wide_paned)
+            if previous_layout is not None and not force:
+                self.controls_box.set_size_request(0, -1)
+                self.wide_paned.set_shrink_end_child(True)
+                self.wide_paned.set_position(width)
+                # Use margin_bottom to visually shrink the content area to its old height,
+                # then animate the margin away so the list grows smoothly.
+                initial_margin = controls_height + 12
+                self.content_stack.set_margin_bottom(initial_margin)
+                self._start_layout_animation(
+                    width, target_position,
+                    initial_margin, 0,
+                    on_done=self._restore_after_wide_anim
+                )
+            else:
+                self.wide_paned.set_position(target_position)
+        else:
+            # --- Transition TO compact layout ---
+            if previous_layout is True and not force:
+                self.controls_box.set_size_request(0, -1)
+                self.wide_paned.set_shrink_end_child(True)
+                self._start_layout_animation(
+                    self.wide_paned.get_position(), width,
+                    0, 0,
+                    on_done=self._finish_compact_transition
+                )
+            else:
+                self._apply_compact_layout()
+        return False
+
+    def _start_layout_animation(self, paned_from, paned_to, margin_from, margin_to, on_done=None):
+        """Animate paned position and content margin_bottom together using a 0→1 progress value."""
+        self._anim_paned_from = paned_from
+        self._anim_paned_to = paned_to
+        self._anim_margin_from = margin_from
+        self._anim_margin_to = margin_to
+        target = Adw.CallbackAnimationTarget.new(self._on_layout_anim_tick)
+        anim = Adw.TimedAnimation.new(
+            self.wide_paned, 0.0, 1.0,
+            LAYOUT_ANIMATION_DURATION, target
+        )
+        anim.set_easing(Adw.Easing.EASE_OUT_CUBIC)
+        if on_done:
+            anim.connect("done", lambda a: on_done())
+        self._layout_anim = anim
+        anim.play()
+
+    def _on_layout_anim_tick(self, progress):
+        """Interpolate both paned position and content margin each frame."""
+        paned_pos = self._anim_paned_from + (self._anim_paned_to - self._anim_paned_from) * progress
+        margin = self._anim_margin_from + (self._anim_margin_to - self._anim_margin_from) * progress
+        self.wide_paned.set_position(int(paned_pos))
+        self.content_stack.set_margin_bottom(int(margin))
+
+    def _restore_after_wide_anim(self):
+        """Remove temporary constraints after the expand animation."""
+        self._layout_anim = None
+        self.content_stack.set_margin_bottom(0)
+        self.wide_paned.set_shrink_end_child(False)
+        self.update_controls_min_width()
+
+    def _finish_compact_transition(self):
+        """Switch to compact layout after the collapse animation."""
+        self._layout_anim = None
+        self.content_stack.set_margin_bottom(0)
+        self.wide_paned.set_shrink_end_child(False)
+        self.update_controls_min_width()
+        # Apply compact margins only after animation finishes to avoid window resize.
+        self.set_margin_start(12)
+        self.set_margin_end(12)
+        self.content_stack.set_margin_start(0)
+        self.content_stack.set_margin_end(0)
+        self.content_stack.set_size_request(-1, -1)
+        self.controls_box.set_margin_start(0)
+        self.controls_box.set_margin_end(0)
+        self.options_box.set_margin_start(30)
+        self.options_box.set_margin_end(30)
+        self.button_box.set_margin_start(30)
+        self.button_box.set_margin_end(30)
+        self.button_box.set_orientation(Gtk.Orientation.HORIZONTAL)
+        self._remove_info_panel_from_controls()
+        self._apply_compact_layout(animated=True)
+
+    def _apply_compact_layout(self, animated=False):
+        """Reparent widgets into the compact (stacked) layout."""
+        self.detach_widget_from_parent(self.content_stack)
+        self.detach_widget_from_parent(self.controls_box)
+        self.clear_box_children(self.main_layout_box)
+        self.clear_box_children(self.compact_layout_box)
+        self.controls_revealer.set_child(self.controls_box)
+        if animated:
+            self.controls_revealer.set_reveal_child(False)
+        else:
+            self.controls_revealer.set_reveal_child(True)
+        self.compact_layout_box.append(self.content_stack)
+        self.compact_layout_box.append(self.controls_revealer)
+        self.main_layout_box.append(self.compact_layout_box)
+        if animated:
+            GLib.idle_add(self.controls_revealer.set_reveal_child, True)
+
+    def _remove_info_panel_from_controls(self):
+        """Remove the info panel from controls_box and restore compact valign."""
+        if self.info_panel.get_parent() == self.controls_box:
+            self.controls_box.remove(self.info_panel)
+        self.controls_box.set_valign(Gtk.Align.END)
+        self.updates_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        if self._row_selected_handler_id is not None:
+            self.updates_listbox.disconnect(self._row_selected_handler_id)
+            self._row_selected_handler_id = None
+
     def create_update_row(self, package_name, current_version, new_version, repo=""):
         """Create a row for an update"""
         row = Gtk.ListBoxRow()
@@ -386,19 +1103,20 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.btn_install.set_sensitive(False)
             row = Gtk.ListBoxRow()
             row.set_selectable(False)
-            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            box.set_margin_top(20)
-            box.set_margin_bottom(20)
+            row.set_vexpand(True)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            box.set_valign(Gtk.Align.CENTER)
             box.set_halign(Gtk.Align.CENTER)
+            box.set_vexpand(True)
             icon = Gtk.Image.new_from_icon_name("emblem-ok")
             if os.path.exists("/usr/share/icons/confirm.svg"):
                 icon.set_from_file("/usr/share/icons/confirm.svg")
             else:
                 icon.set_from_icon_name("emblem-ok")            
-            icon.set_pixel_size(24)
+            icon.set_pixel_size(48)
             box.append(icon)
             label = Gtk.Label(label=_("No updates available"))
-            label.add_css_class("dim-label")
+            label.add_css_class("title-3")
             box.append(label)
             row.set_child(box)
             self.updates_listbox.append(row)
@@ -433,6 +1151,8 @@ class LinexInUpdaterWidget(Gtk.Box):
                     update['repo']
                 )
                 self.updates_listbox.append(row)
+        if self.wide_layout_enabled:
+            self.refresh_info_panel()
     def check_for_updates(self):
         """Check for available updates without root privileges"""
         if self.checking_updates:
@@ -441,6 +1161,9 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.refresh_button.set_sensitive(False)
         self.btn_install.set_sensitive(False)
         self.updates_subtitle.set_text(_("Checking for updates..."))
+        if hasattr(self, 'stats_download_size_row'):
+            self.stats_download_size_row.set_subtitle(_("Calculating..."))
+            self.stats_download_size_row.set_visible(True)
         child = self.updates_listbox.get_first_child()
         while child:
             next_child = child.get_next_sibling()
@@ -451,6 +1174,16 @@ class LinexInUpdaterWidget(Gtk.Box):
                 self.available_updates = []
                 self.aur_updates = []
                 self.flatpak_updates = []
+                ignored_pkgs = set()
+                try:
+                    with open('/etc/pacman.conf', 'r') as f:
+                        for cline in f:
+                            cline = cline.strip()
+                            if cline.startswith('IgnorePkg'):
+                                _, _, value = cline.partition('=')
+                                ignored_pkgs.update(value.strip().split())
+                except Exception:
+                    pass
                 try:
                     result = subprocess.run(['checkupdates'], 
                                           capture_output=True, text=True, timeout=30, env={**os.environ, 'LC_ALL': 'C'})
@@ -460,6 +1193,8 @@ class LinexInUpdaterWidget(Gtk.Box):
                                 parts = line.split()
                                 if len(parts) >= 4:
                                     package = parts[0]
+                                    if package in ignored_pkgs:
+                                        continue
                                     current_version = parts[1]
                                     arrow = parts[2]                  
                                     new_version = parts[3]
@@ -482,6 +1217,8 @@ class LinexInUpdaterWidget(Gtk.Box):
                                 parts = line.split()
                                 if len(parts) >= 4:
                                     package = parts[0]
+                                    if package in ignored_pkgs:
+                                        continue
                                     current_version = parts[1]
                                     arrow = parts[2] 
                                     new_version = parts[3]
@@ -800,8 +1537,18 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.error_message = None
         self.fail_image.set_visible(False)
         self.success_image.set_visible(False)
-        self.info_label.set_markup(f'<span size="large" weight="bold">{_("Updating {}...").format(self.current_product)}</span>')
+        self.info_label.set_markup(f'<span size="large" weight="bold">{_("Update in progress")}</span>')
+        self.install_progress_bar.set_fraction(0.0)
+        self.install_progress_bar.set_text("")
+        self.install_progress_bar.set_visible(True)
+        self.install_status_label.set_text("")
+        self.install_status_label.set_visible(True)
+        self._install_total_packages = 0
         self.content_stack.set_visible_child_name("info_view")
+        if hasattr(self, 'updating_label'):
+            self.updating_label.set_text(_("Updating {}...").format(product_name))
+            self.updating_sublabel.set_text(_("Do not shut down or close the application"))
+            self.info_panel_stack.set_visible_child_name("updating")
         self.progress_data = ""
         self.progress_visible = False
         self.btn_toggle_progress.set_label(_("Show Progress"))
@@ -822,13 +1569,39 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.btn_toggle_progress.set_label(_("Show Progress"))
             self.content_stack.set_visible_child_name("info_view")
     def append_to_log(self, text):
-        """Append text to output buffer and scroll"""
+        """Append text to output buffer, scroll, and update progress bar."""
         if self.progress_visible:
             end_iter = self.output_buffer.get_end_iter()
             self.output_buffer.insert(end_iter, text)
             mark = self.output_buffer.create_mark(None, end_iter, False)
             self.output_textview.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
+        self._parse_install_progress(text)
         return False
+
+    # Regex to match pacman progress lines like "(1/89) upgrading package..."
+    _PROGRESS_RE = re.compile(r'^\((\d+)/(\d+)\)\s+(.*)')
+
+    def _parse_install_progress(self, text):
+        """Parse pacman output lines to update the progress bar."""
+        for line in text.splitlines():
+            line = line.strip()
+            m = self._PROGRESS_RE.match(line)
+            if m:
+                current = int(m.group(1))
+                total = int(m.group(2))
+                action = m.group(3).strip()
+                if total > 0:
+                    fraction = current / total
+                    self.install_progress_bar.set_fraction(fraction)
+                    self.install_progress_bar.set_text(f"{current}/{total}")
+                    # Truncate long action text
+                    if len(action) > 60:
+                        action = action[:57] + "..."
+                    self.install_status_label.set_text(action)
+                    # Update info panel updating view if visible
+                    if hasattr(self, 'updating_sublabel'):
+                        self.updating_sublabel.set_text(f"{current}/{total} — {action}")
+
     def run_shell_command(self, command):
         """Execute shell command in a separate thread"""
         def stream_output():
@@ -912,6 +1685,8 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.shutdown_switch.set_sensitive(True)
         self.btn_install.set_visible(True)
         self.btn_toggle_progress.set_sensitive(True)
+        self.install_progress_bar.set_visible(False)
+        self.install_status_label.set_visible(False)
         if self.error_message:
             self.info_label.set_markup(f'<span color="#e01b24" weight="bold" size="large">{_("Installation failed: ")}</span>\n{self.error_message}')
             self.sound_player.play_sound("/usr/share/linexin/widgets/sounds/fail.ogg")
@@ -934,6 +1709,8 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.content_stack.set_visible_child_name("info_view")
         self.progress_visible = False
         self.btn_toggle_progress.set_label(_("Show Progress"))
+        if hasattr(self, 'info_panel_stack'):
+            self.show_info_panel_default()
         return False
     def return_to_updates_and_refresh(self):
         """Return to updates view and refresh the list"""
