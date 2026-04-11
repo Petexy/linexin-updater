@@ -69,4 +69,8 @@ translations = {
     'Download size': 'डाउनलोड आकार',
     'Calculating...': 'गणना हो रही है...',
     "System": 'सिस्टम',
+    'Description of the package': 'पैकेज का विवरण',
+    'Update only this package': 'केवल इस पैकेज को अपडेट करें',
+    'Loading...': 'लोड हो रहा है...',
+    'No description available': 'कोई विवरण उपलब्ध नहीं',
 }

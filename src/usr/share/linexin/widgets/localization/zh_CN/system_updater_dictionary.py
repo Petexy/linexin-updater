@@ -69,4 +69,8 @@ translations = {
     'Download size': '下载大小',
     'Calculating...': '正在计算...',
     "System": '系统',
+    'Description of the package': '软件包描述',
+    'Update only this package': '仅更新此软件包',
+    'Loading...': '加载中...',
+    'No description available': '没有可用的描述',
 }

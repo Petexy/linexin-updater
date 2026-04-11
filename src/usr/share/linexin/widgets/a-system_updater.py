@@ -329,7 +329,6 @@ class LinexInUpdaterWidget(Gtk.Box):
         options_listbox.add_css_class("boxed-list")
         aur_row = Adw.ActionRow()
         aur_row.set_title(_("Include AUR updates"))
-        aur_row.set_subtitle(_("When disabled, the AUR helper (paru/yay) and kwin effects will be automatically rebuilt to prevent breakage"))
         self.aur_switch = Gtk.Switch()
         self.aur_switch.set_active(True)                      
         self.aur_switch.set_valign(Gtk.Align.CENTER)
@@ -511,6 +510,15 @@ class LinexInUpdaterWidget(Gtk.Box):
         self.detail_list.add_css_class("boxed-list")
         detail_outer.append(self.detail_list)
 
+        # Update only this package button
+        self.detail_update_single_btn = Gtk.Button(label=_("Update only this package"))
+        self.detail_update_single_btn.add_css_class("flat")
+        self.detail_update_single_btn.set_margin_top(4)
+        self.detail_update_single_btn.connect("clicked", self.on_update_single_clicked)
+        self.detail_update_single_btn.set_visible(False)
+        self._detail_current_update = None
+        detail_outer.append(self.detail_update_single_btn)
+
         # Warning banner area
         self.detail_warning_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         detail_outer.append(self.detail_warning_box)
@@ -687,7 +695,10 @@ class LinexInUpdaterWidget(Gtk.Box):
         total = len(all_updates)
 
         if total == 0:
-            self.summary_title_label.set_text(_("System is up to date"))
+            if self.checking_updates:
+                self.summary_title_label.set_text(_("Checking for updates..."))
+            else:
+                self.summary_title_label.set_text(_("System is up to date"))
         elif total == 1:
             self.summary_title_label.set_text(_("1 update available"))
         else:
@@ -773,20 +784,28 @@ class LinexInUpdaterWidget(Gtk.Box):
         fields = [
             (_("Current version"), update_data.get('current', ''), "document-edit-symbolic"),
             (_("New version"), update_data.get('new', ''), "emblem-ok-symbolic"),
-            (_("Repository"), update_data.get('repo', ''), "folder-remote-symbolic"),
             (_("Type"), update_data.get('type', ''), "application-x-addon-symbolic"),
+            (_("Description of the package"), None, "dialog-information-symbolic"),
         ]
+        if update_data.get('repo'):
+            fields.insert(2, (_("Repository"), update_data.get('repo', ''), "folder-remote-symbolic"))
         if 'app_id' in update_data:
             fields.append((_("Application ID"), update_data['app_id'], "application-x-executable-symbolic"))
 
+        self.detail_description_row = None
         for title, value, icon_name in fields:
-            if not value:
-                continue
             row = Adw.ActionRow()
             row.set_title(title)
-            row.set_subtitle(value)
             row.set_icon_name(icon_name)
             row.set_subtitle_selectable(True)
+            if value is None:
+                # Description placeholder — will be filled async
+                row.set_subtitle(_("Loading..."))
+                self.detail_description_row = row
+            else:
+                if not value:
+                    continue
+                row.set_subtitle(value)
             self.detail_list.append(row)
 
         # Warning banner
@@ -814,6 +833,104 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.detail_warning_box.append(banner_box)
 
         self.info_panel_stack.set_visible_child_name("detail")
+
+        # Show the update-single button (hide during install)
+        self._detail_current_update = update_data
+        self.detail_update_single_btn.set_visible(not self.install_started)
+
+        # Fetch description asynchronously
+        pkg_name = update_data.get('name', '')
+        pkg_type = update_data.get('type', '')
+        app_id = update_data.get('app_id', '')
+        threading.Thread(
+            target=self._fetch_package_description,
+            args=(pkg_name, pkg_type, app_id),
+            daemon=True
+        ).start()
+
+    def _fetch_package_description(self, pkg_name, pkg_type, app_id):
+        """Fetch package description in a background thread."""
+        desc = None
+        try:
+            if pkg_type == 'flatpak' and app_id:
+                result = subprocess.run(
+                    ['flatpak', 'info', app_id],
+                    capture_output=True, text=True, timeout=10,
+                    env={**os.environ, 'LC_ALL': 'C'}
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if line.strip().startswith('Description:'):
+                            desc = line.split(':', 1)[1].strip()
+                            break
+            else:
+                result = subprocess.run(
+                    ['pacman', '-Si', pkg_name],
+                    capture_output=True, text=True, timeout=10,
+                    env={**os.environ, 'LC_ALL': 'C'}
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if line.strip().startswith('Description'):
+                            desc = line.split(':', 1)[1].strip()
+                            break
+                if not desc:
+                    result = subprocess.run(
+                        ['pacman', '-Qi', pkg_name],
+                        capture_output=True, text=True, timeout=10,
+                        env={**os.environ, 'LC_ALL': 'C'}
+                    )
+                    if result.returncode == 0:
+                        for line in result.stdout.splitlines():
+                            if line.strip().startswith('Description'):
+                                desc = line.split(':', 1)[1].strip()
+                                break
+        except Exception:
+            pass
+        final_desc = desc if desc else _("No description available")
+        GLib.idle_add(self._apply_package_description, pkg_name, final_desc)
+
+    def _apply_package_description(self, pkg_name, description):
+        """Apply fetched description to the detail view (main thread)."""
+        # Only update if still viewing the same package
+        if (self._detail_current_update and
+                self._detail_current_update.get('name', '') == pkg_name):
+            self.detail_description_row.set_subtitle(description)
+        return False
+
+    def on_update_single_clicked(self, button):
+        """Handle click on 'Update only this package' button."""
+        update_data = self._detail_current_update
+        if not update_data:
+            return
+        if not self.user_password:
+            self.prompt_for_password(callback=lambda btn: self.on_update_single_clicked(btn))
+            return
+        if not self.validate_password():
+            self.user_password = None
+            root = self.get_root() or self.window
+            dialog = Adw.MessageDialog(
+                heading=_("Authentication Failed"),
+                body=_("The password you entered is incorrect. Please try again."),
+                transient_for=root
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.set_response_appearance("ok", Adw.ResponseAppearance.DEFAULT)
+            dialog.connect("response", lambda d, r: d.close())
+            translate_dialog(dialog)
+            dialog.present()
+            return
+        pkg_name = update_data.get('name', '')
+        pkg_type = update_data.get('type', '')
+        app_id = update_data.get('app_id', '')
+        priv_cmd = sudo_manager.wrapper_path
+        if pkg_type == 'flatpak':
+            command = f"flatpak update --assumeyes {app_id}"
+        elif pkg_type == 'AUR':
+            command = f"paru -S --noconfirm --overwrite '*' --sudo '{priv_cmd}' {pkg_name}"
+        else:
+            command = f"{priv_cmd} pacman -S --noconfirm --overwrite '*' {pkg_name}"
+        self.begin_install(command, pkg_name)
 
     def on_update_row_selected(self, listbox, row):
         """Handle row selection in the updates list (wide mode only)."""

@@ -69,4 +69,8 @@ translations = {
     'Download size': 'Rozmiar pobierania',
     'Calculating...': 'Obliczam...',
     "System": 'Systemowych',
+    'Description of the package': 'Opis pakietu',
+    'Update only this package': 'Aktualizuj tylko ten pakiet',
+    'Loading...': 'Ładowanie...',
+    'No description available': 'Brak opisu',
 }
