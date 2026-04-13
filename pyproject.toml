@@ -1,0 +1,20 @@
+[project]
+name = "linexin-updater"
+version = "4.0.0"
+description = "An updater for Arch-based distros. One button updates system packages and Flatpaks at once"
+license = "GPL-3.0-only"
+requires-python = ">=3.10"
+authors = [
+    {name = "Petexy"},
+]
+dependencies = [
+    "PyGObject",
+]
+
+[project.urls]
+Homepage = "https://github.com/Petexy/linexin-updater"
+Repository = "https://github.com/Petexy/linexin-updater"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

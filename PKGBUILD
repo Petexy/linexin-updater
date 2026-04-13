@@ -2,31 +2,41 @@
 
 pkgname=linexin-updater
 pkgver=4.0.0.r
-pkgrel=1
-_currentdate=$(date +"%Y-%m-%d%H-%M-%S")
+pkgrel=2
 pkgdesc='An updater for Arch-based distros. One button updates system packages and Flatpaks at once'
 url='https://github.com/Petexy'
-arch=(x86_64)
+arch=('x86_64')
 license=('GPL-3.0')
 depends=(
-  python-gobject
-  gtk4
-  libadwaita
-  linexin-center
-  linexin-upgrade-tool
-  wget
-)
-makedepends=(
+  'python-gobject'
+  'gtk4'
+  'libadwaita'
+  'linexin-center'
+  'linexin-upgrade-tool'
+  'wget'
 )
 install="${pkgname}.install"
 
 package() {
-   mkdir -p ${pkgdir}/usr/share/linexin/widgets
-   mkdir -p ${pkgdir}/usr/bin
-   mkdir -p ${pkgdir}/usr/applications
-   mkdir -p ${pkgdir}/usr/icons   
-   cp -rf ${srcdir}/usr/ ${pkgdir}/
-   mv ${pkgdir}/usr/share/icons/archlinux-logo-text.svg ${pkgdir}/usr/share/pixmaps/archlinux-logo-text.svg 2>/dev/null || true
-   mv ${pkgdir}/usr/share/icons/archlinux-logo-text-dark.svg ${pkgdir}/usr/share/pixmaps/archlinux-logo-text-dark.svg 2>/dev/null || true
-   mv ${pkgdir}/usr/tmp/ ${pkgdir}/usr/share/
+    cd "${srcdir}"
+
+    find usr -type f | while IFS= read -r _file; do
+        case "${_file}" in
+            usr/bin/*)
+                install -Dm755 "${_file}" "${pkgdir}/${_file}"
+                ;;
+            usr/share/icons/archlinux-logo-text.svg)
+                install -Dm644 "${_file}" "${pkgdir}/usr/share/pixmaps/archlinux-logo-text.svg"
+                ;;
+            usr/share/icons/archlinux-logo-text-dark.svg)
+                install -Dm644 "${_file}" "${pkgdir}/usr/share/pixmaps/archlinux-logo-text-dark.svg"
+                ;;
+            usr/tmp/*)
+                install -Dm644 "${_file}" "${pkgdir}/usr/share/${_file#usr/tmp/}"
+                ;;
+            *)
+                install -Dm644 "${_file}" "${pkgdir}/${_file}"
+                ;;
+        esac
+    done
 }
