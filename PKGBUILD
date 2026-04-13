@@ -2,7 +2,7 @@
 
 pkgname=linexin-updater
 pkgver=4.0.0.r
-pkgrel=2
+pkgrel=3
 pkgdesc='An updater for Arch-based distros. One button updates system packages and Flatpaks at once'
 url='https://github.com/Petexy'
 arch=('x86_64')
@@ -26,13 +26,10 @@ package() {
                 install -Dm755 "${_file}" "${pkgdir}/${_file}"
                 ;;
             usr/share/icons/archlinux-logo-text.svg)
-                install -Dm644 "${_file}" "${pkgdir}/usr/share/pixmaps/archlinux-logo-text.svg"
+                install -Dm644 "${_file}" "${pkgdir}/usr/share/linexin/pixmaps/archlinux-logo-text.svg"
                 ;;
             usr/share/icons/archlinux-logo-text-dark.svg)
-                install -Dm644 "${_file}" "${pkgdir}/usr/share/pixmaps/archlinux-logo-text-dark.svg"
-                ;;
-            usr/tmp/*)
-                install -Dm644 "${_file}" "${pkgdir}/usr/share/${_file#usr/tmp/}"
+                install -Dm644 "${_file}" "${pkgdir}/usr/share/linexin/pixmaps/archlinux-logo-text-dark.svg"
                 ;;
             *)
                 install -Dm644 "${_file}" "${pkgdir}/${_file}"

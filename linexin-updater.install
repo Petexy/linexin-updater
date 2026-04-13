@@ -1,3 +1,14 @@
+_replace_pixmaps()
+{
+   cp -f /usr/share/linexin/pixmaps/archlinux-logo-text.svg /usr/share/pixmaps/archlinux-logo-text.svg
+   cp -f /usr/share/linexin/pixmaps/archlinux-logo-text-dark.svg /usr/share/pixmaps/archlinux-logo-text-dark.svg
+}
+
+post_install()
+{
+   _replace_pixmaps
+}
+
 rebuild_kwin_effects()
 {
    # Rebuild kwin effects from source if they are installed.
@@ -84,6 +95,7 @@ post_upgrade()
       
    fi
 
+   _replace_pixmaps
    rebuild_kwin_effects
 
    exit 0
