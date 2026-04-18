@@ -4,9 +4,20 @@ _replace_pixmaps()
    cp -f /usr/share/linexin/pixmaps/archlinux-logo-text-dark.svg /usr/share/pixmaps/archlinux-logo-text-dark.svg
 }
 
+_fix_pacman_siglevel()
+{
+   # Update linexin-repo SigLevel from "Optional TrustAll" to verified signatures.
+   # Safe to run because linexin-keyring (a dependency) is already installed at this point.
+   local conf="/etc/pacman.conf"
+   if grep -q '^\[linexin-repo\]' "$conf" 2>/dev/null; then
+      sed -i '/^\[linexin-repo\]$/,/^\[/{s/^SigLevel *= *Optional TrustAll$/SigLevel = Optional DatabaseOptional TrustedOnly/}' "$conf"
+   fi
+}
+
 post_install()
 {
    _replace_pixmaps
+   _fix_pacman_siglevel
 }
 
 rebuild_kwin_effects()
@@ -96,6 +107,7 @@ post_upgrade()
    fi
 
    _replace_pixmaps
+   _fix_pacman_siglevel
    rebuild_kwin_effects
 
    exit 0
