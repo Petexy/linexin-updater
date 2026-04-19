@@ -1,7 +1,7 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=linexin-updater
-pkgver=4.0.1.r
+pkgver=4.0.2.r
 pkgrel=1
 pkgdesc='An updater for Arch-based distros. One button updates system packages and Flatpaks at once'
 url='https://github.com/Petexy'

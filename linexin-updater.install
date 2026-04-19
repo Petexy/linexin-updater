@@ -14,10 +14,20 @@ _fix_pacman_siglevel()
    fi
 }
 
+_fix_pacman_desc()
+{
+   # Remove stray %INSTALLED_DB% blocks from local package descriptions.
+   # These cause "unknown key '%INSTALLED_DB%'" warnings during pacman operations.
+   if grep -rq '%INSTALLED_DB%' /var/lib/pacman/local/ 2>/dev/null; then
+      find /var/lib/pacman/local -name 'desc' -exec sed -i '/%INSTALLED_DB%/,/^$/d' {} + 2>/dev/null || true
+   fi
+}
+
 post_install()
 {
    _replace_pixmaps
    _fix_pacman_siglevel
+   _fix_pacman_desc
 }
 
 rebuild_kwin_effects()
@@ -108,6 +118,7 @@ post_upgrade()
 
    _replace_pixmaps
    _fix_pacman_siglevel
+   _fix_pacman_desc
    rebuild_kwin_effects
 
    exit 0
