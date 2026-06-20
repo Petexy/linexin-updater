@@ -1636,7 +1636,7 @@ class LinexInUpdaterWidget(Gtk.Box):
             privileged_cmds = f"{priv_cmd} pacman -Syu --noconfirm --overwrite '*'"
             if aur_helper_rebuild:
                 privileged_cmds += f" && echo 'Reinstalling paru to relink against new libalpm...' && {priv_cmd} pacman -S --noconfirm paru"
-            command = f"echo Updating {product_name}... && sh -c '{privileged_cmds}'"
+            command = f"echo Updating {product_name}... && {privileged_cmds}"
             command += " && { flatpak update --assumeyes || true; }"
             if kwin_rebuild_cmd:
                 command += f" && {kwin_rebuild_cmd}"
