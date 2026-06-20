@@ -1818,6 +1818,8 @@ class LinexInUpdaterWidget(Gtk.Box):
             self.sound_player.play_sound("/usr/share/linexin/widgets/sounds/confirm.ogg")
             self.success_image.set_visible(True)
             self.btn_retry.remove_css_class("suggested-action")
+            if not self.aur_switch.get_active():
+                self.aur_switch.set_active(True)
             GLib.timeout_add_seconds(2, self.return_to_updates_and_refresh)
             if self.turn_off_after_install:
                 command = "shutdown now"
