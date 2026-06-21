@@ -1446,85 +1446,26 @@ class LinexInUpdaterWidget(Gtk.Box):
         except:
             pass
         return False
-    def get_kwin_effects_rebuild_command(self, priv_cmd):
-        """Check if kwin or plasma is being updated and return a shell command to rebuild effects from source"""
-        kwin_update = False
-        for update in self.available_updates + self.aur_updates:
-            name = update.get('name', '').lower()
-            if 'kwin' in name or name.startswith('plasma-'):
-                kwin_update = True
-                break
-        if not kwin_update:
-            return ""
-        rebuild_cmds = []
+    def _kinexin_desktop_installed(self):
         try:
-            result = subprocess.run(['pacman', '-Q', 'kwin-effects-glass-git'], capture_output=True, text=True)
-            if result.returncode == 0:
-                rebuild_cmds.append(
-                    "echo 'Rebuilding kwin-effects-glass from source...' && "
-                    "rm -rf /tmp/_kwin_glass_build && "
-                    "git clone --depth 1 https://github.com/4v3ngR/kwin-effects-glass /tmp/_kwin_glass_build && "
-                    "cmake -B /tmp/_kwin_glass_build/build -S /tmp/_kwin_glass_build -DCMAKE_INSTALL_PREFIX=/usr && "
-                    "cmake --build /tmp/_kwin_glass_build/build && "
-                    f"{priv_cmd} cmake --install /tmp/_kwin_glass_build/build && "
-                    "rm -rf /tmp/_kwin_glass_build"
-                )
-        except:
-            pass
-        try:
-            result = subprocess.run(['pacman', '-Q', 'kwin-effect-rounded-corners-git'], capture_output=True, text=True)
-            if result.returncode == 0:
-                rebuild_cmds.append(
-                    "echo 'Rebuilding KDE-Rounded-Corners from source...' && "
-                    "rm -rf /tmp/_kwin_rounded_build && "
-                    "git clone --depth 1 https://github.com/matinlotfali/KDE-Rounded-Corners /tmp/_kwin_rounded_build && "
-                    "cmake -B /tmp/_kwin_rounded_build/build -S /tmp/_kwin_rounded_build -DCMAKE_INSTALL_PREFIX=/usr && "
-                    "cmake --build /tmp/_kwin_rounded_build/build && "
-                    f"{priv_cmd} cmake --install /tmp/_kwin_rounded_build/build && "
-                    "rm -rf /tmp/_kwin_rounded_build"
-                )
-        except:
-            pass
-        if not rebuild_cmds:
-            return ""
-        return " && ".join(rebuild_cmds)
+            return subprocess.run(['pacman', '-Q', 'kinexin-desktop'],
+                                  capture_output=True, text=True).returncode == 0
+        except Exception:
+            return False
     def _get_kwin_effects_force_rebuild_command(self, priv_cmd):
-        """Return the rebuild-from-source command for all installed kwin effects, unconditionally."""
-        rebuild_cmds = []
-        try:
-            result = subprocess.run(['pacman', '-Q', 'kwin-effects-glass-git'], capture_output=True, text=True)
-            if result.returncode == 0:
-                rebuild_cmds.append(
-                    "echo 'Rebuilding kwin-effects-glass from source...' && "
-                    "rm -rf /tmp/_kwin_glass_build && "
-                    "git clone --depth 1 https://github.com/4v3ngR/kwin-effects-glass /tmp/_kwin_glass_build && "
-                    "cmake -B /tmp/_kwin_glass_build/build -S /tmp/_kwin_glass_build -DCMAKE_INSTALL_PREFIX=/usr && "
-                    "cmake --build /tmp/_kwin_glass_build/build && "
-                    f"{priv_cmd} cmake --install /tmp/_kwin_glass_build/build && "
-                    "rm -rf /tmp/_kwin_glass_build"
-                )
-        except:
-            pass
-        try:
-            result = subprocess.run(['pacman', '-Q', 'kwin-effect-rounded-corners-git'], capture_output=True, text=True)
-            if result.returncode == 0:
-                rebuild_cmds.append(
-                    "echo 'Rebuilding KDE-Rounded-Corners from source...' && "
-                    "rm -rf /tmp/_kwin_rounded_build && "
-                    "git clone --depth 1 https://github.com/matinlotfali/KDE-Rounded-Corners /tmp/_kwin_rounded_build && "
-                    "cmake -B /tmp/_kwin_rounded_build/build -S /tmp/_kwin_rounded_build -DCMAKE_INSTALL_PREFIX=/usr && "
-                    "cmake --build /tmp/_kwin_rounded_build/build && "
-                    f"{priv_cmd} cmake --install /tmp/_kwin_rounded_build/build && "
-                    "rm -rf /tmp/_kwin_rounded_build"
-                )
-        except:
-            pass
-        if not rebuild_cmds:
+        """Force-trigger kinexin-desktop's rebuild service, regardless of pending
+        updates. Only available when kinexin-desktop is installed."""
+        if not self._kinexin_desktop_installed():
             return ""
-        return " && ".join(rebuild_cmds)
+        return f"{priv_cmd} systemctl start kinexin-kwin-effects-rebuild.service"
 
     def on_debug_rebuild_kwin_clicked(self, button):
         """[DEBUG] Force-rebuild kwin effects from source, regardless of pending updates."""
+        # kinexin-desktop owns the effects rebuild and is an optional package; if
+        # it is not installed there is nothing to do, so silently omit (no prompt,
+        # no dialog).
+        if not self._kinexin_desktop_installed():
+            return
         if not self.user_password:
             self.prompt_for_password(callback=self.on_debug_rebuild_kwin_clicked)
             return
@@ -1545,16 +1486,6 @@ class LinexInUpdaterWidget(Gtk.Box):
         priv_cmd = sudo_manager.wrapper_path
         command = self._get_kwin_effects_force_rebuild_command(priv_cmd)
         if not command:
-            root = self.get_root() or self.window
-            dialog = Adw.MessageDialog(
-                heading=_("No KWin Effects Installed"),
-                body=_("Neither kwin-effects-glass-git nor kwin-effect-rounded-corners-git is installed."),
-                transient_for=root
-            )
-            dialog.add_response("ok", _("OK"))
-            dialog.connect("response", lambda d, r: d.close())
-            translate_dialog(dialog)
-            dialog.present()
             return
         self.begin_install(command, "KWin Effects (debug rebuild)")
 
@@ -1625,12 +1556,13 @@ class LinexInUpdaterWidget(Gtk.Box):
         product_name = distro.name()
         self.btn_retry.set_visible(False)
         priv_cmd = sudo_manager.wrapper_path
-        kwin_rebuild_cmd = self.get_kwin_effects_rebuild_command(priv_cmd)
+        # No kwin-effects rebuild is appended here. If kinexin-desktop is installed
+        # it owns the effects and its pacman hook rebuilds them (blocking) during
+        # the pacman -Syu below, so this update naturally waits for it; if it is
+        # not installed, nothing should be rebuilt. linexin-updater is only the GUI.
         if self.include_aur_updates:
             command = f"echo Updating {product_name}... && paru -Syu --noconfirm --overwrite '*' --sudo '{priv_cmd}'"
             command += " && { flatpak update --assumeyes || true; }"
-            if kwin_rebuild_cmd:
-                command += f" && {kwin_rebuild_cmd}"
         else:
             aur_helper_rebuild = self.get_aur_helper_rebuild_command()
             privileged_cmds = f"{priv_cmd} pacman -Syu --noconfirm --overwrite '*'"
@@ -1638,8 +1570,6 @@ class LinexInUpdaterWidget(Gtk.Box):
                 privileged_cmds += f" && echo 'Reinstalling paru to relink against new libalpm...' && {priv_cmd} pacman -S --noconfirm paru"
             command = f"echo Updating {product_name}... && {privileged_cmds}"
             command += " && { flatpak update --assumeyes || true; }"
-            if kwin_rebuild_cmd:
-                command += f" && {kwin_rebuild_cmd}"
         self.begin_install(command, product_name)
     def begin_install(self, command, product_name):
         """Start the installation process"""
