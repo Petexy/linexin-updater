@@ -2,7 +2,7 @@
 
 pkgname=linexin-updater
 pkgver=4.0.4.r
-pkgrel=1
+pkgrel=2
 pkgdesc='An updater for Arch-based distros. One button updates system packages and Flatpaks at once'
 url='https://github.com/Petexy'
 arch=('x86_64')
